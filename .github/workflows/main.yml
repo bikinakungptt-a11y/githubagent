@@ -1,39 +1,33 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+    - uses: actions/checkout@v3
+    
+    - name: set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
 
-      - name: Set up Gradle 9.3.1
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "9.3.1"
+    - name: Build with Gradle
+      run: ./gradlew assembleDebug
 
-      - name: Verify Gradle
-        run: gradle --version
-
-      - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: githubagent-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+    - name: Upload APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-debug
+        path: app/build/outputs/apk/debug/app-debug.apk

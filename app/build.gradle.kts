@@ -1,4 +1,3 @@
-import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
   alias(libs.plugins.android.application)
@@ -6,7 +5,6 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
-  alias(libs.plugins.google.services)
 }
 
 android {
@@ -70,8 +68,6 @@ secrets {
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
-
-googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
