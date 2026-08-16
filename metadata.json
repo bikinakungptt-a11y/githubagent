@@ -1,0 +1,6 @@
+{
+  "name": "GitAgent",
+  "description": "An AI coding agent for GitHub repositories",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
