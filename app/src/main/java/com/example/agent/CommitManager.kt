@@ -34,7 +34,7 @@ class CommitManager(
 
         // 2. Create AI branch if requested
         if (createAiBranch) {
-            val dateStr = SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.US).format(Date())
+            val dateStr = SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(Date())
             targetBranch = "ai/fix-$dateStr"
             
             gitHubService.createBranch(
@@ -68,7 +68,7 @@ class CommitManager(
                 UpdateFileRequest(
                     message = commitMessage,
                     content = encodedContent,
-                    sha = currentFile?.sha ?: "",
+                    sha = currentFile?.sha,
                     branch = targetBranch
                 )
             )
