@@ -166,7 +166,7 @@ class WorkspaceViewModel(
                 val newBranch = commitManager.commitAndPush(
                     owner = owner,
                     repo = repo,
-                    baseBranch = _selectedBranch.value
+                    baseBranch = _selectedBranch.value,
                     patches = patches,
                     commitMessage = commitMessage,
                     createAiBranch = _createAiBranch.value
