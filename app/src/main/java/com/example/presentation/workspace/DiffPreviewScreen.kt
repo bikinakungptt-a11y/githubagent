@@ -27,7 +27,9 @@ import com.example.ui.theme.IdeDiffRemoved
 fun DiffPreviewScreen(
     patches: List<FilePatch>,
     onCommit: (String) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    isCommitting: Boolean = false,
+    statusMessage: String? = null
 ) {
     var commitMessage by remember { mutableStateOf("AI: Update files") }
     var showCommitSheet by remember { mutableStateOf(false) }
@@ -67,7 +69,13 @@ fun DiffPreviewScreen(
 
     if (showCommitSheet) {
         ModalBottomSheet(onDismissRequest = { showCommitSheet = false }) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(16.dp)
+            ) {
                 Text("Commit changes", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
                 Text("Branch: ai/fix-flow", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
@@ -79,19 +87,39 @@ fun DiffPreviewScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp)
                 )
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
+                if (!statusMessage.isNullOrBlank()) {
+                    Text(
+                        text = statusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (statusMessage.contains("Error", ignoreCase = true)) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    )
+                }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { showCommitSheet = false }) {
                         Text("Cancel")
                     }
                     Spacer(Modifier.width(16.dp))
-                    Button(onClick = { 
-                        showCommitSheet = false
-                        onCommit(commitMessage) 
-                    }) {
-                        Icon(Icons.Default.Commit, contentDescription = null)
+                    Button(
+                        onClick = { onCommit(commitMessage.trim()) },
+                        enabled = !isCommitting && commitMessage.isNotBlank()
+                    ) {
+                        if (isCommitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Icon(Icons.Default.Commit, contentDescription = null)
+                        }
                         Spacer(Modifier.width(8.dp))
-                        Text("Commit & Push")
+                        Text(if (isCommitting) "Committing…" else "Commit & Push")
                     }
                 }
                 Spacer(Modifier.height(16.dp))
