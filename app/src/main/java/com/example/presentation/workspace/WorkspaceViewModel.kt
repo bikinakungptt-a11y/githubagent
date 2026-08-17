@@ -41,6 +41,8 @@ class WorkspaceViewModel(
     private val _branches = MutableStateFlow<List<String>>(listOf("main"))
     val branches: StateFlow<List<String>> = _branches.asStateFlow()
 
+    private val _createAiBranch = MutableStateFlow(true)
+
     private val _selectedBranch = MutableStateFlow("main")
     val selectedBranch: StateFlow<String> = _selectedBranch.asStateFlow()
 
@@ -54,6 +56,7 @@ class WorkspaceViewModel(
             _agentConfig.value = config
             
             settingsRepository.saveLastSelectedRepo(repositoryName)
+            _createAiBranch.value = settingsRepository.createAiBranchFlow.first()
             loadBranches()
         }
     }
@@ -160,7 +163,7 @@ class WorkspaceViewModel(
                     baseBranch = _selectedBranch.value
                     patches = patches,
                     commitMessage = commitMessage,
-                    createAiBranch = true
+                    createAiBranch = _createAiBranch.value
                 )
                 _messages.value = _messages.value + "System: Successfully pushed to branch $newBranch"
             } catch(e: Exception) {
