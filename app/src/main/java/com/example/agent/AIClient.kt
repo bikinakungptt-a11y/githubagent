@@ -12,6 +12,8 @@ import retrofit2.http.Body
 import retrofit2.http.HeaderMap
 import retrofit2.http.POST
 import retrofit2.http.Url
+import java.net.SocketTimeoutException
+import java.util.concurrent.TimeUnit
 
 interface OpenAICompatibleService {
     @POST
@@ -64,6 +66,10 @@ class AIClient(
         }
 
         val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.MINUTES)
+            .callTimeout(5, TimeUnit.MINUTES)
             .addInterceptor(logging)
             .build()
 
@@ -110,7 +116,14 @@ class AIClient(
             thinking = thinkingLevel?.let { ThinkingConfig(it) }
         )
 
-        val response = service.createCompletion(url, headers, request)
+        val response = try {
+            service.createCompletion(url, headers, request)
+        } catch (error: SocketTimeoutException) {
+            throw IllegalStateException(
+                "AI provider did not respond within 5 minutes. Check the Base URL, model name, or provider status.",
+                error
+            )
+        }
         return response.choices.firstOrNull()?.message?.content ?: "No response from AI."
     }
 }
