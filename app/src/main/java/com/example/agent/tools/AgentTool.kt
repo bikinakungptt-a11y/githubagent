@@ -9,6 +9,41 @@ abstract class AgentTool(
     abstract suspend fun execute(arguments: Map<String, String>): String
 }
 
+class ListFilesTool(
+    private val gitHubService: com.example.data.github.GitHubService,
+    private val githubToken: String,
+    private val repositoryName: String,
+    private val branch: String = "main"
+) : AgentTool(
+    name = "listFiles",
+    description = "Lists real files and folders in the selected GitHub repository. Optional argument: path. Use this first when the user uses simple, vague, or non-technical language."
+) {
+    override suspend fun execute(arguments: Map<String, String>): String {
+        if (githubToken.isBlank()) return "Error: GitHub PAT is missing."
+        val parts = repositoryName.split("/", limit = 2)
+        if (parts.size != 2) return "Error: invalid repository name '$repositoryName'."
+        val path = arguments["path"]?.trim().orEmpty()
+        return try {
+            val entries = gitHubService.getRepositoryDirectory(
+                "Bearer $githubToken", parts[0], parts[1], path, branch
+            )
+            if (entries.isEmpty()) {
+                "No files found at '${path.ifBlank { "/" }}'."
+            } else {
+                buildString {
+                    appendLine("Repository entries at ${path.ifBlank { "/" }}:")
+                    entries.sortedWith(compareBy<com.example.data.github.GitHubContentDto> { it.type != "dir" }.thenBy { it.name })
+                        .forEach { entry ->
+                            appendLine("- [${entry.type}] ${entry.path}")
+                        }
+                }.trim()
+            }
+        } catch (error: Exception) {
+            "Error listing repository files: ${error.message ?: error.javaClass.simpleName}"
+        }
+    }
+}
+
 class ReadFileTool(
     private val gitHubService: com.example.data.github.GitHubService,
     private val githubToken: String,
