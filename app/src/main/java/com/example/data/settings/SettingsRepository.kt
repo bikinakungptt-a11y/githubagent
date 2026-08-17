@@ -35,6 +35,18 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[REASONING_LEVEL_KEY] = level.name }
     }
     
+    private val AUTO_PUSH_KEY = booleanPreferencesKey("auto_push")
+    val autoPushFlow: Flow<Boolean> = context.dataStore.data.map { it[AUTO_PUSH_KEY] ?: false }
+    suspend fun saveAutoPush(enabled: Boolean) {
+        context.dataStore.edit { it[AUTO_PUSH_KEY] = enabled }
+    }
+
+    private val CREATE_AI_BRANCH_KEY = booleanPreferencesKey("create_ai_branch")
+    val createAiBranchFlow: Flow<Boolean> = context.dataStore.data.map { it[CREATE_AI_BRANCH_KEY] ?: true }
+    suspend fun saveCreateAiBranch(enabled: Boolean) {
+        context.dataStore.edit { it[CREATE_AI_BRANCH_KEY] = enabled }
+    }
+
     private val LAST_REPO_KEY = stringPreferencesKey("last_repo")
     val lastSelectedRepoFlow: Flow<String?> = context.dataStore.data.map { it[LAST_REPO_KEY] }
     
