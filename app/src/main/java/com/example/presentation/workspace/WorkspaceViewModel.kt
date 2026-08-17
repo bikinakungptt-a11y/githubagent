@@ -158,8 +158,6 @@ class WorkspaceViewModel(
 
     fun confirmCommit(commitMessage: String) {
         val patches = _pendingPatches.value
-        _pendingPatches.value = emptyList() // clear
-        
         if (patches.isEmpty()) return
         
         _isAgentBusy.value = true
@@ -179,9 +177,11 @@ class WorkspaceViewModel(
                     commitMessage = commitMessage,
                     createAiBranch = _createAiBranch.value
                 )
+                _pendingPatches.value = emptyList()
                 _messages.value = _messages.value + "System: Successfully pushed to branch $newBranch"
             } catch(e: Exception) {
-                _messages.value = _messages.value + "System Error pushing: ${e.message}"
+                _messages.value = _messages.value +
+                    "System Error pushing: ${e.message}\nChanges were kept so you can retry."
             } finally {
                 _isAgentBusy.value = false
             }
