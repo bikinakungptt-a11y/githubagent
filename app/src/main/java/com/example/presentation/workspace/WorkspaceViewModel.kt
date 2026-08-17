@@ -83,7 +83,7 @@ class WorkspaceViewModel(
         if (branch in _branches.value) _selectedBranch.value = branch
     }
 
-    fun submitRequest(request: String, mode: String = "Ask") {
+    fun submitRequest(request: String, mode: String = "Ask", attachments: List<com.example.agent.AgentAttachment> = emptyList()) {
         val config = _agentConfig.value ?: return
         if (request.isBlank()) return
         
@@ -93,7 +93,13 @@ class WorkspaceViewModel(
             "Auto Fix" -> "AUTO FIX MODE: search the repository for the cause, read all relevant files, and stage a safe complete fix."
             else -> "ASK MODE: inspect the repository and answer; do not edit unless explicitly requested."
         }
-        val agentRequest = "$modeInstruction\n\nUser request: $request"
+        val textAttachments = attachments.mapNotNull { attachment ->
+            attachment.textContent?.let { content ->
+                "\n\nAttached file: ${attachment.name} (${attachment.mimeType})\n" +
+                    content.take(120_000)
+            }
+        }.joinToString("")
+        val agentRequest = "$modeInstruction\n\nUser request: $request$textAttachments"
         _messages.value = _messages.value + "User: [$mode] $request"
         _isAgentBusy.value = true
 
@@ -113,7 +119,7 @@ class WorkspaceViewModel(
         viewModelScope.launch {
             try {
                 var finalAgentResponse = ""
-                engine.processRequest(agentRequest, repositoryName).collect { status ->
+                engine.processRequest(agentRequest, repositoryName, attachments).collect { status ->
                     if (status.finalResponse != null) {
                         finalAgentResponse = status.finalResponse
                     } else {
