@@ -28,7 +28,7 @@ class SettingsRepository(private val context: Context) {
     private val REASONING_LEVEL_KEY = stringPreferencesKey("reasoning_level")
     val reasoningLevelFlow: Flow<ReasoningLevel> = context.dataStore.data.map { 
         val name = it[REASONING_LEVEL_KEY] ?: ReasoningLevel.MAXIMUM.name
-        ReasoningLevel.valueOf(name) 
+        runCatching { ReasoningLevel.valueOf(name) }.getOrDefault(ReasoningLevel.MAXIMUM) 
     }
     
     suspend fun saveReasoningLevel(level: ReasoningLevel) {
