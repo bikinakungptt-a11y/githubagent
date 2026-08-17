@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.example.data.github.GitHubContentDto
 import com.example.di.AppContainerProvider
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,6 +29,7 @@ fun FileExplorerScreen(repositoryName: String) {
     val service = AppContainerProvider.appContainer.gitHubService
     val token = AppContainerProvider.appContainer.secureCredentialManager.getGitHubToken().orEmpty()
     val parts = remember(repositoryName) { repositoryName.split("/", limit = 2) }
+    val scope = rememberCoroutineScope()
     var currentPath by remember { mutableStateOf("") }
     var entries by remember { mutableStateOf<List<GitHubContentDto>>(emptyList()) }
     var selectedFile by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -87,7 +89,7 @@ fun FileExplorerScreen(repositoryName: String) {
                                 currentPath = entry.path
                             } else {
                                 loading = true
-                                kotlinx.coroutines.MainScope().launch {
+                                scope.launch {
                                     try {
                                         val file = service.getRepositoryContent(
                                             "Bearer $token", parts[0], parts[1], entry.path, "main"
