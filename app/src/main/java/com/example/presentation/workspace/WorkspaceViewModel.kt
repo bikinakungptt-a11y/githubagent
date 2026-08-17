@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.agent.AgentEngine
 import com.example.agent.AgentStatus
 import com.example.agent.tools.AgentTool
+import com.example.agent.tools.ListFilesTool
 import com.example.agent.tools.ReadFileTool
 import com.example.agent.tools.SearchCodeTool
 import com.example.agent.tools.UpdateFileTool
@@ -113,6 +114,7 @@ class WorkspaceViewModel(
         val aiClient = com.example.agent.AIClient(config, apiKey)
 
         val tools = listOf(
+            ListFilesTool(gitHubService, token, repositoryName, _selectedBranch.value),
             ReadFileTool(gitHubService, token, repositoryName, _selectedBranch.value),
             SearchCodeTool(gitHubService, token, repositoryName),
             UpdateFileTool()
