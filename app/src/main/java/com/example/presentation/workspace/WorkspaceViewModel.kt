@@ -48,16 +48,20 @@ class WorkspaceViewModel(
 
     init {
         viewModelScope.launch {
-            val config = AIProviderConfig(
-                baseUrl = settingsRepository.baseUrlFlow.first(),
-                modelName = settingsRepository.modelNameFlow.first(),
-                reasoningLevel = settingsRepository.reasoningLevelFlow.first()
-            )
-            _agentConfig.value = config
-            
-            settingsRepository.saveLastSelectedRepo(repositoryName)
-            _createAiBranch.value = settingsRepository.createAiBranchFlow.first()
-            loadBranches()
+            try {
+                val config = AIProviderConfig(
+                    baseUrl = settingsRepository.baseUrlFlow.first(),
+                    modelName = settingsRepository.modelNameFlow.first(),
+                    reasoningLevel = settingsRepository.reasoningLevelFlow.first()
+                )
+                _agentConfig.value = config
+                settingsRepository.saveLastSelectedRepo(repositoryName)
+                _createAiBranch.value = settingsRepository.createAiBranchFlow.first()
+                loadBranches()
+            } catch (error: Exception) {
+                _agentConfig.value = AIProviderConfig()
+                _messages.value = listOf("System: Workspace settings were reset because they could not be loaded.")
+            }
         }
     }
 
