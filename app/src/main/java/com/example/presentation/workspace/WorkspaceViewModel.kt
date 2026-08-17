@@ -38,6 +38,12 @@ class WorkspaceViewModel(
     private val _pendingPatches = MutableStateFlow<List<com.example.agent.patch.FilePatch>>(emptyList())
     val pendingPatches: StateFlow<List<com.example.agent.patch.FilePatch>> = _pendingPatches.asStateFlow()
 
+    private val _branches = MutableStateFlow<List<String>>(listOf("main"))
+    val branches: StateFlow<List<String>> = _branches.asStateFlow()
+
+    private val _selectedBranch = MutableStateFlow("main")
+    val selectedBranch: StateFlow<String> = _selectedBranch.asStateFlow()
+
     init {
         viewModelScope.launch {
             val config = AIProviderConfig(
@@ -48,14 +54,44 @@ class WorkspaceViewModel(
             _agentConfig.value = config
             
             settingsRepository.saveLastSelectedRepo(repositoryName)
+            loadBranches()
         }
     }
 
-    fun submitRequest(request: String) {
+    private suspend fun loadBranches() {
+        val token = secureCredentialManager.getGitHubToken().orEmpty()
+        val parts = repositoryName.split("/", limit = 2)
+        if (token.isBlank() || parts.size != 2) return
+        try {
+            val remoteBranches = gitHubService.getBranches("Bearer $token", parts[0], parts[1])
+                .map { it.name }
+            if (remoteBranches.isNotEmpty()) {
+                _branches.value = remoteBranches
+                if (_selectedBranch.value !in remoteBranches) {
+                    _selectedBranch.value = remoteBranches.first()
+                }
+            }
+        } catch (_: Exception) {
+            // Keep main as a safe fallback and expose API failures during actual agent operations.
+        }
+    }
+
+    fun selectBranch(branch: String) {
+        if (branch in _branches.value) _selectedBranch.value = branch
+    }
+
+    fun submitRequest(request: String, mode: String = "Ask") {
         val config = _agentConfig.value ?: return
         if (request.isBlank()) return
         
-        _messages.value = _messages.value + "User: $request"
+        val modeInstruction = when (mode) {
+            "Edit" -> "EDIT MODE: inspect relevant files and stage only the requested changes."
+            "Fix" -> "FIX MODE: diagnose the root cause, read relevant files, and stage a focused fix."
+            "Auto Fix" -> "AUTO FIX MODE: search the repository for the cause, read all relevant files, and stage a safe complete fix."
+            else -> "ASK MODE: inspect the repository and answer; do not edit unless explicitly requested."
+        }
+        val agentRequest = "$modeInstruction\n\nUser request: $request"
+        _messages.value = _messages.value + "User: [$mode] $request"
         _isAgentBusy.value = true
 
         val token = secureCredentialManager.getGitHubToken() ?: ""
@@ -64,7 +100,7 @@ class WorkspaceViewModel(
         val aiClient = com.example.agent.AIClient(config, apiKey)
 
         val tools = listOf(
-            ReadFileTool(gitHubService, token, repositoryName, "main"),
+            ReadFileTool(gitHubService, token, repositoryName, _selectedBranch.value),
             SearchCodeTool(gitHubService, token, repositoryName),
             UpdateFileTool()
         )
@@ -74,7 +110,7 @@ class WorkspaceViewModel(
         viewModelScope.launch {
             try {
                 var finalAgentResponse = ""
-                engine.processRequest(request, repositoryName).collect { status ->
+                engine.processRequest(agentRequest, repositoryName).collect { status ->
                     if (status.finalResponse != null) {
                         finalAgentResponse = status.finalResponse
                     } else {
@@ -121,7 +157,7 @@ class WorkspaceViewModel(
                 val newBranch = commitManager.commitAndPush(
                     owner = owner,
                     repo = repo,
-                    baseBranch = "main", // in real app get from context
+                    baseBranch = _selectedBranch.value
                     patches = patches,
                     commitMessage = commitMessage,
                     createAiBranch = true
