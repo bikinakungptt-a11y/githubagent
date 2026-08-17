@@ -138,19 +138,21 @@ class WorkspaceViewModel(
                     _messages.value = _messages.value + "Agent:\n$finalAgentResponse"
                 }
 
-                // If UpdateFileTool was called, we should ideally parse the updated files from the tool. 
-                // For now, we simulate finding the patches if any were requested.
-                // In a robust implementation, the tools themselves would register pending patches.
-                val pending = (tools.find { it.name == "updateFile" } as? UpdateFileTool)?.getPendingPatches() ?: emptyList()
-                
-                if (pending.isNotEmpty()) {
-                    _pendingPatches.value = pending
-                }
-                
             } catch (e: Exception) {
                 _messages.value = _messages.value + "Agent Error: ${e.message}"
+            } finally {
+                // Preserve every file already staged by the agent even if the AI provider
+                // fails during a later iteration. The user can review partial work in Changes.
+                val pending = (tools.find { it.name == "updateFile" } as? UpdateFileTool)
+                    ?.getPendingPatches()
+                    .orEmpty()
+                if (pending.isNotEmpty()) {
+                    _pendingPatches.value = pending
+                    _messages.value = _messages.value +
+                        "System: Saved ${pending.size} staged file(s) to Changes for review."
+                }
+                _isAgentBusy.value = false
             }
-            _isAgentBusy.value = false
         }
     }
 
