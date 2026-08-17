@@ -1,5 +1,9 @@
 package com.example.presentation.workspace
 
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -41,6 +46,43 @@ fun WorkspaceScreen(
     )
 ) {
     var prompt by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var attachments by remember { mutableStateOf<List<com.example.agent.AgentAttachment>>(emptyList()) }
+    var attachmentError by remember { mutableStateOf<String?>(null) }
+    var showUploadConfirmation by remember { mutableStateOf(false) }
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        val selected = mutableListOf<com.example.agent.AgentAttachment>()
+        attachmentError = null
+        uris.take(5).forEach { uri ->
+            try {
+                val resolver = context.contentResolver
+                val mime = resolver.getType(uri) ?: "application/octet-stream"
+                var name = "attachment"
+                resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) name = cursor.getString(0) ?: name
+                }
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                if (bytes.size > 8 * 1024 * 1024) {
+                    attachmentError = "$name exceeds the 8 MB limit."
+                } else if (mime.startsWith("image/")) {
+                    val encoded = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    selected += com.example.agent.AgentAttachment(name, mime, dataUrl = "data:$mime;base64,$encoded")
+                } else {
+                    val textTypes = listOf("text/", "json", "xml", "javascript", "kotlin", "java", "yaml", "toml")
+                    if (textTypes.any { mime.contains(it, ignoreCase = true) } || name.substringAfterLast('.', "") in listOf("kt","java","js","ts","py","md","txt","json","xml","yml","yaml","toml","gradle","properties")) {
+                        selected += com.example.agent.AgentAttachment(name, mime, textContent = bytes.toString(Charsets.UTF_8))
+                    } else {
+                        attachmentError = "$name is not a supported text/code or image file."
+                    }
+                }
+            } catch (error: Exception) {
+                attachmentError = error.message ?: "Unable to read selected file."
+            }
+        }
+        attachments = (attachments + selected).distinctBy { it.name }.take(5)
+    }
     val messages by viewModel.messages.collectAsState()
     val isBusy by viewModel.isAgentBusy.collectAsState()
     val config by viewModel.agentConfig.collectAsState()
@@ -136,12 +178,29 @@ fun WorkspaceScreen(
                             )
                         }
                     }
+                    if (attachments.isNotEmpty()) {
+                        androidx.compose.foundation.lazy.LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        ) {
+                            items(attachments) { attachment ->
+                                InputChip(
+                                    selected = true,
+                                    onClick = { attachments = attachments - attachment },
+                                    label = { Text("× ${attachment.name}") }
+                                )
+                            }
+                        }
+                    }
+                    attachmentError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = onOpenFiles) {
-                            Icon(Icons.Default.Add, contentDescription = "Choose context file")
+                        IconButton(onClick = { filePicker.launch(arrayOf("image/*", "text/*", "application/json", "application/xml")) }) {
+                            Icon(Icons.Default.Add, contentDescription = "Upload photo or file")
                         }
                         OutlinedTextField(
                             value = prompt,
@@ -156,9 +215,13 @@ fun WorkspaceScreen(
                             )
                         )
                         IconButton(
-                            onClick = { 
-                                viewModel.submitRequest(prompt, selectedMode)
-                                prompt = ""
+                            onClick = {
+                                if (attachments.isEmpty()) {
+                                    viewModel.submitRequest(prompt, selectedMode)
+                                    prompt = ""
+                                } else {
+                                    showUploadConfirmation = true
+                                }
                             },
                             enabled = !isBusy && prompt.isNotBlank()
                         ) {
@@ -199,6 +262,27 @@ fun WorkspaceScreen(
         }
     }
     
+    }
+
+    if (showUploadConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showUploadConfirmation = false },
+            title = { Text("Send attachments to AI provider?") },
+            text = {
+                Text("The selected files will be sent to: ${config?.baseUrl ?: "configured Base URL"}. Do not send private files unless you trust this provider.")
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.submitRequest(prompt, selectedMode, attachments)
+                    prompt = ""
+                    attachments = emptyList()
+                    showUploadConfirmation = false
+                }) { Text("Send") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUploadConfirmation = false }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showMoreMenu) {
