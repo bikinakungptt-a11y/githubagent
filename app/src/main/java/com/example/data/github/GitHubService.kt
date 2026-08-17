@@ -26,6 +26,15 @@ interface GitHubService {
         @Query("ref") ref: String
     ): GitHubContentDto
 
+    @GET("repos/{owner}/{repo}/git/trees/{treeSha}")
+    suspend fun getRepositoryTree(
+        @Header("Authorization") authHeader: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("treeSha") treeSha: String,
+        @Query("recursive") recursive: Int = 1
+    ): GitHubTreeResponse
+
     @GET("repos/{owner}/{repo}/branches")
     suspend fun getBranches(
         @Header("Authorization") authHeader: String,
@@ -144,6 +153,22 @@ data class GitHubRepoDto(
 data class GitHubBranchDto(
     val name: String,
     val commit: CommitDto
+)
+
+data class GitHubTreeResponse(
+    val sha: String,
+    val url: String,
+    val tree: List<GitHubTreeEntry>,
+    val truncated: Boolean
+)
+
+data class GitHubTreeEntry(
+    val path: String,
+    val mode: String,
+    val type: String,
+    val sha: String,
+    val size: Long? = null,
+    val url: String
 )
 
 data class GitHubCodeSearchResponse(
