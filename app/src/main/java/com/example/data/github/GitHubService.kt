@@ -34,6 +34,15 @@ interface GitHubService {
         @Query("per_page") perPage: Int = 100
     ): List<GitHubBranchDto>
 
+    @GET("repos/{owner}/{repo}/contents/{path}")
+    suspend fun getRepositoryDirectory(
+        @Header("Authorization") authHeader: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("path") path: String,
+        @Query("ref") ref: String
+    ): List<GitHubContentDto>
+
     @GET("search/code")
     suspend fun searchCode(
         @Header("Authorization") authHeader: String,
