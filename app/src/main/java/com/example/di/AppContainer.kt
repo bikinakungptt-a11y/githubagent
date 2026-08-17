@@ -37,6 +37,13 @@ class AppContainer(private val context: Context) {
         }
         OkHttpClient.Builder()
             .protocols(listOf(Protocol.HTTP_1_1))
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("Accept", "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .build()
+                chain.proceed(request)
+            }
             .addInterceptor(logging)
             .build()
     }
