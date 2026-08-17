@@ -25,6 +25,7 @@ fun WorkspaceScreen(
     repositoryName: String, 
     onNavigateBack: () -> Unit,
     onOpenFiles: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     viewModel: WorkspaceViewModel = viewModel(
         factory = WorkspaceViewModelFactory(
             AppContainerProvider.appContainer.secureCredentialManager,
@@ -40,12 +41,15 @@ fun WorkspaceScreen(
     val isBusy by viewModel.isAgentBusy.collectAsState()
     val config by viewModel.agentConfig.collectAsState()
     val pendingPatches by viewModel.pendingPatches.collectAsState()
+    val branches by viewModel.branches.collectAsState()
+    val selectedBranch by viewModel.selectedBranch.collectAsState()
     
     var selectedMode by remember { mutableStateOf("Ask") }
     val modes = listOf("Ask", "Edit", "Fix", "Auto Fix")
 
     var showRepoSheet by remember { mutableStateOf(false) }
     var showBranchSheet by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
 
     // Ideally, pendingPatches would move to Changes tab, 
     // but for now we display it as a banner or handle it here if it exists.
@@ -72,7 +76,7 @@ fun WorkspaceScreen(
                             val reasoning = config?.reasoningLevel?.name ?: "MAX"
                             val model = config?.modelName ?: "Loading..."
                             Text(
-                                text = "$repositoryName • main • $model • $reasoning",
+                                text = "$repositoryName • $selectedBranch • $model • $reasoning",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -92,7 +96,7 @@ fun WorkspaceScreen(
                     IconButton(onClick = onOpenFiles) {
                         Icon(Icons.Default.Folder, contentDescription = "Files")
                     }
-                    IconButton(onClick = { /* options */ }) {
+                    IconButton(onClick = { showMoreMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More")
                     }
                 },
@@ -124,8 +128,8 @@ fun WorkspaceScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { /* attach context */ }) {
-                            Icon(Icons.Default.Add, contentDescription = "Add context")
+                        IconButton(onClick = onOpenFiles) {
+                            Icon(Icons.Default.Add, contentDescription = "Choose context file")
                         }
                         OutlinedTextField(
                             value = prompt,
@@ -141,7 +145,7 @@ fun WorkspaceScreen(
                         )
                         IconButton(
                             onClick = { 
-                                viewModel.submitRequest(prompt)
+                                viewModel.submitRequest(prompt, selectedMode)
                                 prompt = ""
                             },
                             enabled = !isBusy && prompt.isNotBlank()
@@ -183,6 +187,22 @@ fun WorkspaceScreen(
         }
     }
     
+    if (showMoreMenu) {
+        DropdownMenu(
+            expanded = true,
+            onDismissRequest = { showMoreMenu = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Open files") },
+                onClick = { showMoreMenu = false; onOpenFiles() }
+            )
+            DropdownMenuItem(
+                text = { Text("Settings") },
+                onClick = { showMoreMenu = false; onOpenSettings() }
+            )
+        }
+    }
+
     if (showRepoSheet) {
         ModalBottomSheet(onDismissRequest = { showRepoSheet = false }) {
             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
@@ -207,20 +227,20 @@ fun WorkspaceScreen(
             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
                 Text("Select Branch", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(16.dp))
-                ListItem(
-                    headlineContent = { Text("main") },
-                    leadingContent = { Icon(Icons.Default.Check, contentDescription = null, tint = Color.Green) },
-                    modifier = Modifier.clickable { showBranchSheet = false }
-                )
-                ListItem(
-                    headlineContent = { Text("ai/fix-flow") },
-                    modifier = Modifier.clickable { showBranchSheet = false }
-                )
-                ListItem(
-                    headlineContent = { Text("Create new branch...") },
-                    leadingContent = { Icon(Icons.Default.Add, contentDescription = null) },
-                    modifier = Modifier.clickable { showBranchSheet = false }
-                )
+                branches.forEach { branch ->
+                    ListItem(
+                        headlineContent = { Text(branch) },
+                        leadingContent = {
+                            if (branch == selectedBranch) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Green)
+                            }
+                        },
+                        modifier = Modifier.clickable {
+                            viewModel.selectBranch(branch)
+                            showBranchSheet = false
+                        }
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
