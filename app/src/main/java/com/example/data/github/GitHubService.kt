@@ -26,6 +26,14 @@ interface GitHubService {
         @Query("ref") ref: String
     ): GitHubContentDto
 
+    @GET("repos/{owner}/{repo}/branches")
+    suspend fun getBranches(
+        @Header("Authorization") authHeader: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Query("per_page") perPage: Int = 100
+    ): List<GitHubBranchDto>
+
     @GET("search/code")
     suspend fun searchCode(
         @Header("Authorization") authHeader: String,
@@ -122,6 +130,11 @@ data class GitHubRepoDto(
     val private: Boolean,
     val default_branch: String,
     val updated_at: String
+)
+
+data class GitHubBranchDto(
+    val name: String,
+    val commit: CommitDto
 )
 
 data class GitHubCodeSearchResponse(
