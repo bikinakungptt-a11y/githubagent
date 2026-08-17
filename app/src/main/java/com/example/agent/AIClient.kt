@@ -26,15 +26,30 @@ interface OpenAICompatibleService {
 
 data class ChatCompletionRequest(
     val model: String,
-    val messages: List<ChatMessage>,
+    val messages: List<ChatRequestMessage>,
     val max_tokens: Int? = null,
     val temperature: Float? = null,
     val thinking: ThinkingConfig? = null // For Gemini-style thinking config if supported via proxy
 )
 
+data class ChatRequestMessage(
+    val role: String,
+    val content: Any
+)
+
 data class ChatMessage(
     val role: String,
     val content: String
+)
+
+data class ChatContentPart(
+    val type: String,
+    val text: String? = null,
+    val image_url: ChatImageUrl? = null
+)
+
+data class ChatImageUrl(
+    val url: String
 )
 
 data class ThinkingConfig(
@@ -83,7 +98,7 @@ class AIClient(
         service = retrofit.create(OpenAICompatibleService::class.java)
     }
 
-    suspend fun analyze(prompt: String): String {
+    suspend fun analyze(prompt: String, attachments: List<AgentAttachment> = emptyList()): String {
         val url = if (config.baseUrl.endsWith("/")) {
             "${config.baseUrl}chat/completions"
         } else {
@@ -106,11 +121,22 @@ class AIClient(
             }
         } else null
 
+        val imageParts = attachments.mapNotNull { attachment ->
+            attachment.dataUrl?.let {
+                ChatContentPart(type = "image_url", image_url = ChatImageUrl(it))
+            }
+        }
+        val userContent: Any = if (imageParts.isEmpty()) {
+            prompt
+        } else {
+            listOf(ChatContentPart(type = "text", text = prompt)) + imageParts
+        }
+
         val request = ChatCompletionRequest(
             model = config.modelName,
             messages = listOf(
-                ChatMessage(role = "system", content = "You are a senior software engineering AI agent."),
-                ChatMessage(role = "user", content = prompt)
+                ChatRequestMessage(role = "system", content = "You are a senior software engineering AI agent."),
+                ChatRequestMessage(role = "user", content = userContent)
             ),
             max_tokens = if (config.reasoningModeEnabled) null else config.maxOutputTokens, // per user instruction: Do not set maxOutputTokens when using thinking
             thinking = thinkingLevel?.let { ThinkingConfig(it) }
