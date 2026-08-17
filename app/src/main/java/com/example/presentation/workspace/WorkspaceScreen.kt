@@ -30,6 +30,7 @@ fun WorkspaceScreen(
             AppContainerProvider.appContainer.secureCredentialManager,
             AppContainerProvider.appContainer.settingsRepository,
             AppContainerProvider.appContainer.commitManager,
+            AppContainerProvider.appContainer.gitHubService,
             repositoryName
         )
     )
