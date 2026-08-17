@@ -149,8 +149,8 @@ fun WorkspaceScreen(
         },
         bottomBar = {
             Surface(
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
+                color = Color.Black,
+                tonalElevation = 0.dp,
                 shadowElevation = 8.dp
             ) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
@@ -162,7 +162,13 @@ fun WorkspaceScreen(
                             FilterChip(
                                 selected = selectedMode == mode,
                                 onClick = { selectedMode = mode },
-                                label = { Text(mode, style = MaterialTheme.typography.labelSmall) }
+                                label = { Text(mode, style = MaterialTheme.typography.labelSmall) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = Color.Black,
+                                    labelColor = Color.White,
+                                    selectedContainerColor = Color(0xFF1565C0),
+                                    selectedLabelColor = Color.White
+                                )
                             )
                         }
                     }
@@ -188,7 +194,11 @@ fun WorkspaceScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { filePicker.launch(arrayOf("image/*", "text/*", "application/json", "application/xml")) }) {
-                            Icon(Icons.Default.Add, contentDescription = "Upload photo or file")
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = "Upload photo or file",
+                                tint = Color.White
+                            )
                         }
                         OutlinedTextField(
                             value = prompt,
@@ -198,8 +208,15 @@ fun WorkspaceScreen(
                             maxLines = 4,
                             shape = RoundedCornerShape(20.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedContainerColor = Color.Black,
+                                unfocusedContainerColor = Color.Black,
+                                focusedBorderColor = Color(0xFF1565C0),
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.65f),
+                                focusedPlaceholderColor = Color.White.copy(alpha = 0.65f),
+                                unfocusedPlaceholderColor = Color.White.copy(alpha = 0.65f),
+                                cursorColor = Color(0xFF42A5F5)
                             )
                         )
                         IconButton(
@@ -216,7 +233,7 @@ fun WorkspaceScreen(
                             Icon(
                                 Icons.Default.Send, 
                                 contentDescription = "Send",
-                                tint = if (!isBusy && prompt.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                tint = if (!isBusy && prompt.isNotBlank()) Color(0xFF42A5F5) else Color.White.copy(alpha = 0.38f)
                             )
                         }
                     }
