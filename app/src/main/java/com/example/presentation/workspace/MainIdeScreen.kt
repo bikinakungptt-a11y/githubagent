@@ -46,6 +46,12 @@ fun MainIdeScreen(
     )
     val pendingPatches by workspaceViewModel.pendingPatches.collectAsState()
     val historyMessages by workspaceViewModel.messages.collectAsState()
+    val isWorkspaceBusy by workspaceViewModel.isAgentBusy.collectAsState()
+    val pushStatus = historyMessages.lastOrNull {
+        it.startsWith("System: Committing") ||
+            it.startsWith("System: Successfully pushed") ||
+            it.startsWith("System Error pushing")
+    }
 
     Scaffold(
         bottomBar = {
@@ -119,7 +125,9 @@ fun MainIdeScreen(
                     DiffPreviewScreen(
                         patches = pendingPatches,
                         onCommit = workspaceViewModel::confirmCommit,
-                        onCancel = workspaceViewModel::cancelCommit
+                        onCancel = workspaceViewModel::cancelCommit,
+                        isCommitting = isWorkspaceBusy,
+                        statusMessage = pushStatus
                     )
                 }
             }
