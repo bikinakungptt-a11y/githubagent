@@ -16,26 +16,43 @@ class ListFilesTool(
     private val branch: String = "main"
 ) : AgentTool(
     name = "listFiles",
-    description = "Lists real files and folders in the selected GitHub repository. Optional argument: path. Use this first when the user uses simple, vague, or non-technical language."
+    description = "Lists the complete recursive file and folder tree of the selected GitHub repository. Optional argument: path filters the tree to a folder. Use this before reading or editing files."
 ) {
     override suspend fun execute(arguments: Map<String, String>): String {
         if (githubToken.isBlank()) return "Error: GitHub PAT is missing."
         val parts = repositoryName.split("/", limit = 2)
-        if (parts.size != 2) return "Error: invalid repository name '$repositoryName'."
-        val path = arguments["path"]?.trim().orEmpty()
+        if (parts.size != 2) return "Error: invalid repository name \'$repositoryName\'."
+        val requestedPath = arguments["path"]?.trim()?.trim(\'/\').orEmpty()
+
         return try {
-            val entries = gitHubService.getRepositoryDirectory(
-                "Bearer $githubToken", parts[0], parts[1], path, branch
+            val response = gitHubService.getRepositoryTree(
+                authHeader = "Bearer $githubToken",
+                owner = parts[0],
+                repo = parts[1],
+                treeSha = branch
             )
+            val entries = response.tree
+                .asSequence()
+                .filter { entry ->
+                    requestedPath.isBlank() ||
+                        entry.path == requestedPath ||
+                        entry.path.startsWith("$requestedPath/")
+                }
+                .sortedWith(compareBy<com.example.data.github.GitHubTreeEntry> { it.type != "tree" }.thenBy { it.path })
+                .toList()
+
             if (entries.isEmpty()) {
-                "No files found at '${path.ifBlank { "/" }}'."
+                "No files found at \'${requestedPath.ifBlank { "/" }}\' on branch \'$branch\'."
             } else {
                 buildString {
-                    appendLine("Repository entries at ${path.ifBlank { "/" }}:")
-                    entries.sortedWith(compareBy<com.example.data.github.GitHubContentDto> { it.type != "dir" }.thenBy { it.name })
-                        .forEach { entry ->
-                            appendLine("- [${entry.type}] ${entry.path}")
-                        }
+                    appendLine("Complete repository tree at ${requestedPath.ifBlank { "/" }} on branch $branch:")
+                    entries.forEach { entry ->
+                        val kind = if (entry.type == "tree") "dir" else "file"
+                        appendLine("- [$kind] ${entry.path}")
+                    }
+                    if (response.truncated) {
+                        appendLine("[GitHub reported that this very large tree was truncated.]")
+                    }
                 }.trim()
             }
         } catch (error: Exception) {
@@ -43,7 +60,6 @@ class ListFilesTool(
         }
     }
 }
-
 class ReadFileTool(
     private val gitHubService: com.example.data.github.GitHubService,
     private val githubToken: String,
