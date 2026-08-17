@@ -1,15 +1,20 @@
 package com.example.agent
 
-import com.example.agent.patch.FilePatch
-import com.example.data.github.CreateRefRequest
-import com.example.data.github.GitHubService
-import com.example.data.github.UpdateFileRequest
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import android.util.Base64
+import com.example.agent.patch.FilePatch
+import com.example.data.github.CreateBlobRequest
+import com.example.data.github.CreateGitCommitRequest
+import com.example.data.github.CreateRefRequest
+import com.example.data.github.CreateTreeEntry
+import com.example.data.github.CreateTreeRequest
+import com.example.data.github.GitHubService
+import com.example.data.github.UpdateRefRequest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 class CommitManager(
     private val gitHubService: GitHubService,
@@ -23,58 +28,96 @@ class CommitManager(
         commitMessage: String,
         createAiBranch: Boolean
     ): String = withContext(Dispatchers.IO) {
-        val token = tokenProvider() ?: throw Exception("Not authenticated")
+        val token = tokenProvider()?.trim().orEmpty()
+        if (token.isBlank()) throw IllegalStateException("GitHub PAT is missing.")
+        if (patches.isEmpty()) throw IllegalStateException("There are no files to commit.")
+
         val authHeader = "Bearer $token"
+        var stage = "reading base branch"
 
-        // 1. Get base branch SHA
-        val baseRef = gitHubService.getBranchReference(authHeader, owner, repo, baseBranch)
-        val baseSha = baseRef.`object`.sha
+        try {
+            val baseRef = gitHubService.getBranchReference(authHeader, owner, repo, baseBranch)
+            val baseCommitSha = baseRef.`object`.sha
 
-        var targetBranch = baseBranch
+            stage = "reading base tree"
+            val baseCommit = gitHubService.getGitCommit(authHeader, owner, repo, baseCommitSha)
+            val baseTreeSha = baseCommit.tree.sha
 
-        // 2. Create AI branch if requested
-        if (createAiBranch) {
-            val dateStr = SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(Date())
-            targetBranch = "ai/fix-$dateStr"
-            
-            gitHubService.createBranch(
-                authHeader, 
-                owner, 
-                repo, 
-                CreateRefRequest(
-                    ref = "refs/heads/$targetBranch",
-                    sha = baseSha
+            stage = "uploading file contents"
+            val treeEntries = patches.map { patch ->
+                val encoded = Base64.encodeToString(
+                    patch.modifiedContent.toByteArray(Charsets.UTF_8),
+                    Base64.NO_WRAP
                 )
-            )
-        }
-
-        // 3. Update files one by one (For a real production app, we would use the Git Trees API to create a single commit with multiple files, but for simplicity here we update individually)
-        var lastCommitSha = baseSha
-        for (patch in patches) {
-            // Get current file sha
-            val currentFile = try {
-                gitHubService.getRepositoryContent(authHeader, owner, repo, patch.path, targetBranch)
-            } catch (e: Exception) {
-                null // File might not exist
+                val blob = gitHubService.createBlob(
+                    authHeader,
+                    owner,
+                    repo,
+                    CreateBlobRequest(content = encoded)
+                )
+                CreateTreeEntry(path = patch.path, sha = blob.sha)
             }
 
-            val encodedContent = Base64.encodeToString(patch.modifiedContent.toByteArray(), Base64.NO_WRAP)
-            
-            val updateResp = gitHubService.updateFile(
+            stage = "creating repository tree"
+            val tree = gitHubService.createTree(
                 authHeader,
                 owner,
                 repo,
-                patch.path,
-                UpdateFileRequest(
-                    message = commitMessage,
-                    content = encodedContent,
-                    sha = currentFile?.sha,
-                    branch = targetBranch
+                CreateTreeRequest(base_tree = baseTreeSha, tree = treeEntries)
+            )
+
+            stage = "creating commit"
+            val commit = gitHubService.createGitCommit(
+                authHeader,
+                owner,
+                repo,
+                CreateGitCommitRequest(
+                    message = commitMessage.ifBlank { "Update files with AI Agent" },
+                    tree = tree.sha,
+                    parents = listOf(baseCommitSha)
                 )
             )
-            lastCommitSha = updateResp.commit.sha
-        }
 
-        return@withContext targetBranch
+            if (createAiBranch) {
+                stage = "creating AI branch"
+                val dateStr = SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(Date())
+                val targetBranch = "ai/fix-$dateStr"
+                gitHubService.createBranch(
+                    authHeader,
+                    owner,
+                    repo,
+                    CreateRefRequest(
+                        ref = "refs/heads/$targetBranch",
+                        sha = commit.sha
+                    )
+                )
+                targetBranch
+            } else {
+                stage = "updating branch $baseBranch"
+                gitHubService.updateBranchReference(
+                    authHeader,
+                    owner,
+                    repo,
+                    baseBranch,
+                    UpdateRefRequest(sha = commit.sha, force = false)
+                )
+                baseBranch
+            }
+        } catch (error: HttpException) {
+            val details = runCatching { error.response()?.errorBody()?.string() }
+                .getOrNull()
+                ?.take(600)
+                .orEmpty()
+            throw IllegalStateException(
+                "GitHub failed while $stage (HTTP ${error.code()})" +
+                    if (details.isBlank()) "." else ": $details",
+                error
+            )
+        } catch (error: Exception) {
+            throw IllegalStateException(
+                "Commit failed while $stage: ${error.message ?: error.javaClass.simpleName}",
+                error
+            )
+        }
     }
 }
