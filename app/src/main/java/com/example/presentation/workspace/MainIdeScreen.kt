@@ -1,6 +1,7 @@
 package com.example.presentation.workspace
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Edit
@@ -121,8 +122,8 @@ fun MainIdeScreen(
                     if (historyMessages.isEmpty()) {
                         item { Text("No agent history yet") }
                     } else {
-                        items(historyMessages.size) { index ->
-                            Text(historyMessages[index], modifier = Modifier.padding(vertical = 8.dp))
+                        items(historyMessages) { message ->
+                            Text(message, modifier = Modifier.padding(vertical = 8.dp))
                         }
                     }
                 }
