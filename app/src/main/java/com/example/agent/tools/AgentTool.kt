@@ -21,8 +21,8 @@ class ListFilesTool(
     override suspend fun execute(arguments: Map<String, String>): String {
         if (githubToken.isBlank()) return "Error: GitHub PAT is missing."
         val parts = repositoryName.split("/", limit = 2)
-        if (parts.size != 2) return "Error: invalid repository name \'$repositoryName\'."
-        val requestedPath = arguments["path"]?.trim()?.trim(\'/\').orEmpty()
+        if (parts.size != 2) return "Error: invalid repository name '$repositoryName'."
+        val requestedPath = arguments["path"]?.trim()?.trim('/').orEmpty()
 
         return try {
             val response = gitHubService.getRepositoryTree(
@@ -42,7 +42,7 @@ class ListFilesTool(
                 .toList()
 
             if (entries.isEmpty()) {
-                "No files found at \'${requestedPath.ifBlank { "/" }}\' on branch \'$branch\'."
+                "No files found at '${requestedPath.ifBlank { "/" }}' on branch '$branch'."
             } else {
                 buildString {
                     appendLine("Complete repository tree at ${requestedPath.ifBlank { "/" }} on branch $branch:")
