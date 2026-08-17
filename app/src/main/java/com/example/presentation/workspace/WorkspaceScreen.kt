@@ -213,10 +213,6 @@ fun WorkspaceScreen(
                     leadingContent = { Icon(Icons.Default.Check, contentDescription = null, tint = Color.Green) },
                     modifier = Modifier.clickable { showRepoSheet = false }
                 )
-                ListItem(
-                    headlineContent = { Text("example/another-repo") },
-                    modifier = Modifier.clickable { showRepoSheet = false }
-                )
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
