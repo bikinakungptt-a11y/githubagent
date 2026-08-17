@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import com.example.di.AppContainerProvider
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -20,6 +21,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     val createBranch by repository.createAiBranchFlow.collectAsState(initial = true)
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf("") }
+    var githubTokenInput by remember { mutableStateOf("") }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -46,6 +48,36 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                )
+                OutlinedTextField(
+                    value = githubTokenInput,
+                    onValueChange = { githubTokenInput = it },
+                    label = { Text("Replace GitHub PAT") },
+                    placeholder = { Text("github_pat_... or ghp_...") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+                Button(
+                    onClick = {
+                        val newToken = githubTokenInput.trim()
+                        if (newToken.isBlank()) {
+                            status = "Enter a GitHub PAT first."
+                        } else {
+                            credentials.saveGitHubToken(newToken)
+                            githubTokenInput = ""
+                            status = "GitHub PAT replaced. Refresh repositories before retrying."
+                        }
+                    },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text("Save GitHub PAT")
+                }
+                Text(
+                    "The token value is encrypted on this device and is never displayed again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
                 ListItem(
                     headlineContent = { Text("Clear Credentials") },
