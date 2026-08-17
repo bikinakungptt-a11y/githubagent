@@ -69,14 +69,9 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                 )
                 ListItem(
                     headlineContent = { Text("Auto Push") },
-                    supportingContent = { Text("Automatically push after AI edit without manual review") },
+                    supportingContent = { Text("Disabled for safety; review is required before every push") },
                     trailingContent = {
-                        Switch(
-                            checked = autoPush,
-                            onCheckedChange = { enabled ->
-                                scope.launch { repository.saveAutoPush(enabled) }
-                            }
-                        )
+                        Switch(checked = false, onCheckedChange = null, enabled = false)
                     },
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
                 )
