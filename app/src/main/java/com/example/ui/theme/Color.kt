@@ -2,7 +2,7 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val IdeBackground = Color(0xFF181818)
+val IdeBackground = Color(0xFF000000)
 val IdeSurface = Color(0xFF222222)
 val IdeSurfaceVariant = Color(0xFF2D2D2D)
 val IdePrimary = Color(0xFF2F80ED)
