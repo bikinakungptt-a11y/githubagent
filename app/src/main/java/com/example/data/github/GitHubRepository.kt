@@ -21,7 +21,11 @@ class GitHubRepository(
                 name = dto.full_name,
                 isPrivate = dto.private,
                 defaultBranch = dto.default_branch ?: "main",
-                permission = RepoPermission.READ_WRITE,
+                permission = if (dto.permissions?.push == true) {
+                    RepoPermission.READ_WRITE
+                } else {
+                    RepoPermission.READ_ONLY
+                },
                 lastUpdate = try { Instant.parse(dto.updated_at).toEpochMilli() } catch (e: Exception) { 0L }
             )
         }
