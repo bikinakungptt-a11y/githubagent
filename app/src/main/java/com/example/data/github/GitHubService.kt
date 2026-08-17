@@ -86,7 +86,7 @@ data class RefObjectDto(
 data class UpdateFileRequest(
     val message: String,
     val content: String,
-    val sha: String,
+    val sha: String? = null,
     val branch: String
 )
 
