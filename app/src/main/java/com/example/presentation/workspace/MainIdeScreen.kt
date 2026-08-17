@@ -13,6 +13,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,17 @@ fun MainIdeScreen(
 ) {
     val navController = rememberNavController()
     var selectedTab by remember { mutableStateOf("agent") }
+    val workspaceViewModel: WorkspaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = WorkspaceViewModelFactory(
+            com.example.di.AppContainerProvider.appContainer.secureCredentialManager,
+            com.example.di.AppContainerProvider.appContainer.settingsRepository,
+            com.example.di.AppContainerProvider.appContainer.commitManager,
+            com.example.di.AppContainerProvider.appContainer.gitHubService,
+            repositoryName
+        )
+    )
+    val pendingPatches by workspaceViewModel.pendingPatches.collectAsState()
+    val historyMessages by workspaceViewModel.messages.collectAsState()
 
     Scaffold(
         bottomBar = {
@@ -80,24 +92,48 @@ fun MainIdeScreen(
                     onOpenFiles = {
                         selectedTab = "files"
                         navController.navigate("files") { launchSingleTop = true }
-                    }
+                    },
+                    onOpenSettings = {
+                        selectedTab = "settings"
+                        navController.navigate("settings") { launchSingleTop = true }
+                    },
+                    viewModel = workspaceViewModel
                 )
             }
             composable("files") {
                 FileExplorerScreen(repositoryName = repositoryName)
             }
             composable("changes") {
-                // We'll show empty changes here unless populated from ViewModel, 
-                // but since DiffPreview is currently inside WorkspaceScreen, we can just show a placeholder
-                Text("No pending changes", modifier = Modifier.padding(16.dp))
+                if (pendingPatches.isEmpty()) {
+                    Text("No pending changes", modifier = Modifier.padding(16.dp))
+                } else {
+                    DiffPreviewScreen(
+                        patches = pendingPatches,
+                        onCommit = workspaceViewModel::confirmCommit,
+                        onCancel = workspaceViewModel::cancelCommit
+                    )
+                }
             }
             composable("history") {
-                // HistoryScreen()
-                Text("History")
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    if (historyMessages.isEmpty()) {
+                        item { Text("No agent history yet") }
+                    } else {
+                        items(historyMessages.size) { index ->
+                            Text(historyMessages[index], modifier = Modifier.padding(vertical = 8.dp))
+                        }
+                    }
+                }
             }
             composable("settings") {
-                // SettingsScreen()
-                Text("Settings")
+                com.example.presentation.settings.SettingsScreen(
+                    onNavigateBack = {
+                        selectedTab = "agent"
+                        navController.navigate("agent") { launchSingleTop = true }
+                    }
+                )
             }
         }
     }
