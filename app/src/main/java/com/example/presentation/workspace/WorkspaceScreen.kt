@@ -99,7 +99,13 @@ fun WorkspaceScreen(
         DiffPreviewScreen(
             patches = pendingPatches,
             onCommit = { message -> viewModel.confirmCommit(message) },
-            onCancel = { viewModel.cancelCommit() }
+            onCancel = { viewModel.cancelCommit() },
+            isCommitting = isBusy,
+            statusMessage = messages.lastOrNull {
+                it.startsWith("System: Committing") ||
+                    it.startsWith("System: Successfully pushed") ||
+                    it.startsWith("System Error pushing")
+            }
         )
         return
     }
