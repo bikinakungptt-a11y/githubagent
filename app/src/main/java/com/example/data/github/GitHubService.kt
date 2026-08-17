@@ -4,6 +4,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.PATCH
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -67,6 +68,47 @@ interface GitHubService {
         @Path("branch") branch: String
     ): GitHubRefDto
 
+    @GET("repos/{owner}/{repo}/git/commits/{commitSha}")
+    suspend fun getGitCommit(
+        @Header("Authorization") authHeader: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("commitSha") commitSha: String
+    ): GitCommitDto
+
+    @POST("repos/{owner}/{repo}/git/blobs")
+    suspend fun createBlob(
+        @Header("Authorization") authHeader: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Body request: CreateBlobRequest
+    ): GitObjectDto
+
+    @POST("repos/{owner}/{repo}/git/trees")
+    suspend fun createTree(
+        @Header("Authorization") authHeader: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Body request: CreateTreeRequest
+    ): GitTreeDto
+
+    @POST("repos/{owner}/{repo}/git/commits")
+    suspend fun createGitCommit(
+        @Header("Authorization") authHeader: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Body request: CreateGitCommitRequest
+    ): GitCommitDto
+
+    @PATCH("repos/{owner}/{repo}/git/refs/heads/{branch}")
+    suspend fun updateBranchReference(
+        @Header("Authorization") authHeader: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("branch") branch: String,
+        @Body request: UpdateRefRequest
+    ): GitHubRefDto
+
     @POST("repos/{owner}/{repo}/git/refs")
     suspend fun createBranch(
         @Header("Authorization") authHeader: String,
@@ -96,6 +138,50 @@ interface GitHubService {
 data class CreateRefRequest(
     val ref: String,
     val sha: String
+)
+
+data class CreateBlobRequest(
+    val content: String,
+    val encoding: String = "base64"
+)
+
+data class GitObjectDto(
+    val sha: String,
+    val url: String
+)
+
+data class CreateTreeEntry(
+    val path: String,
+    val mode: String = "100644",
+    val type: String = "blob",
+    val sha: String
+)
+
+data class CreateTreeRequest(
+    val base_tree: String,
+    val tree: List<CreateTreeEntry>
+)
+
+data class GitTreeDto(
+    val sha: String,
+    val url: String
+)
+
+data class CreateGitCommitRequest(
+    val message: String,
+    val tree: String,
+    val parents: List<String>
+)
+
+data class GitCommitDto(
+    val sha: String,
+    val url: String,
+    val tree: GitObjectDto
+)
+
+data class UpdateRefRequest(
+    val sha: String,
+    val force: Boolean = false
 )
 
 data class GitHubRefDto(
@@ -147,7 +233,16 @@ data class GitHubRepoDto(
     val full_name: String,
     val private: Boolean,
     val default_branch: String,
-    val updated_at: String
+    val updated_at: String,
+    val permissions: GitHubRepoPermissionsDto? = null
+)
+
+data class GitHubRepoPermissionsDto(
+    val admin: Boolean = false,
+    val maintain: Boolean = false,
+    val push: Boolean = false,
+    val triage: Boolean = false,
+    val pull: Boolean = true
 )
 
 data class GitHubBranchDto(
