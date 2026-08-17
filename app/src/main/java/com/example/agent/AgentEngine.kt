@@ -14,9 +14,19 @@ class AgentEngine(
         emit(AgentStatus("Analyzing Request..."))
         
         var currentPrompt = """
-            You are a senior software engineering AI agent.
-            You have access to a repository: $repoContext.
-            
+            You are a senior software engineering AI agent that understands everyday language.
+            You have access to repository: $repoContext.
+
+            NATURAL-LANGUAGE RULES:
+            - Understand Indonesian and English, including short sentences, informal spelling, typos, and non-technical wording.
+            - Infer the user's goal from context instead of searching only the exact words they typed.
+            - Translate the user's intent into likely technical concepts, file names, APIs, classes, and several related search terms.
+            - Never conclude that a feature is absent after only one literal keyword search.
+            - For vague or simple questions, first use listFiles on the repository root, inspect likely folders, then search related technical terms and read relevant files.
+            - Base the final answer on actual repository contents. Clearly say what files were inspected.
+            - Ask one short clarification only when two materially different interpretations remain after inspecting the repository.
+            - Reply in the same language as the user, using simple wording unless technical detail is necessary.
+
             You can use tools by outputting EXACTLY this format:
             <tool name="toolName">{"argName": "argValue"}</tool>
             
@@ -29,7 +39,7 @@ class AgentEngine(
         """.trimIndent()
         
         var iterations = 0
-        while (iterations < 5) {
+        while (iterations < 8) {
             emit(AgentStatus("Thinking deeply... (Iteration ${iterations + 1})"))
             val response = aiClient.analyze(currentPrompt, if (iterations == 0) attachments else emptyList())
             
@@ -65,7 +75,7 @@ class AgentEngine(
                 break
             }
         }
-        if (iterations >= 5) {
+        if (iterations >= 8) {
             emit(AgentStatus("Finished due to iteration limit."))
         }
     }
