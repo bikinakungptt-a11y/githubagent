@@ -10,7 +10,7 @@ class AgentEngine(
     private val tools: List<AgentTool>,
     private val aiClient: AIClient
 ) {
-    fun processRequest(request: String, repoContext: String): Flow<AgentStatus> = flow {
+    fun processRequest(request: String, repoContext: String, attachments: List<AgentAttachment> = emptyList()): Flow<AgentStatus> = flow {
         emit(AgentStatus("Analyzing Request..."))
         
         var currentPrompt = """
@@ -31,7 +31,7 @@ class AgentEngine(
         var iterations = 0
         while (iterations < 5) {
             emit(AgentStatus("Thinking deeply... (Iteration ${iterations + 1})"))
-            val response = aiClient.analyze(currentPrompt)
+            val response = aiClient.analyze(currentPrompt, if (iterations == 0) attachments else emptyList())
             
             val toolMatch = "<tool name=\"([a-zA-Z]+)\">(.*?)</tool>".toRegex(RegexOption.DOT_MATCHES_ALL).find(response)
             if (toolMatch != null) {
