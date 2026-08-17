@@ -22,6 +22,7 @@ class WorkspaceViewModel(
     private val secureCredentialManager: SecureCredentialManager,
     private val settingsRepository: SettingsRepository,
     private val commitManager: com.example.agent.CommitManager,
+    private val gitHubService: com.example.data.github.GitHubService,
     private val repositoryName: String
 ) : ViewModel() {
 
@@ -63,8 +64,8 @@ class WorkspaceViewModel(
         val aiClient = com.example.agent.AIClient(config, apiKey)
 
         val tools = listOf(
-            ReadFileTool(token),
-            SearchCodeTool(),
+            ReadFileTool(gitHubService, token, repositoryName, "main"),
+            SearchCodeTool(gitHubService, token, repositoryName),
             UpdateFileTool()
         )
         
@@ -144,12 +145,19 @@ class WorkspaceViewModelFactory(
     private val secureCredentialManager: SecureCredentialManager,
     private val settingsRepository: SettingsRepository,
     private val commitManager: com.example.agent.CommitManager,
+    private val gitHubService: com.example.data.github.GitHubService,
     private val repositoryName: String
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(WorkspaceViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return WorkspaceViewModel(secureCredentialManager, settingsRepository, commitManager, repositoryName) as T
+            return WorkspaceViewModel(
+                secureCredentialManager,
+                settingsRepository,
+                commitManager,
+                gitHubService,
+                repositoryName
+            ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
