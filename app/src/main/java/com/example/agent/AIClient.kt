@@ -13,6 +13,8 @@ import retrofit2.http.HeaderMap
 import retrofit2.http.POST
 import retrofit2.http.Url
 import java.net.SocketTimeoutException
+import kotlinx.coroutines.delay
+import retrofit2.HttpException
 import java.util.concurrent.TimeUnit
 
 interface OpenAICompatibleService {
@@ -142,14 +144,40 @@ class AIClient(
             thinking = thinkingLevel?.let { ThinkingConfig(it) }
         )
 
-        val response = try {
-            service.createCompletion(url, headers, request)
-        } catch (error: SocketTimeoutException) {
-            throw IllegalStateException(
-                "AI provider did not respond within 5 minutes. Check the Base URL, model name, or provider status.",
-                error
-            )
+        var lastError: Exception? = null
+        repeat(3) { attemptIndex ->
+            try {
+                val response = service.createCompletion(url, headers, request)
+                return response.choices.firstOrNull()?.message?.content ?: "No response from AI."
+            } catch (error: HttpException) {
+                lastError = error
+                val retryable = error.code() in 500..599
+                if (!retryable || attemptIndex == 2) {
+                    val details = runCatching { error.response()?.errorBody()?.string() }
+                        .getOrNull()
+                        ?.take(400)
+                        .orEmpty()
+                    throw IllegalStateException(
+                        "AI provider error HTTP ${error.code()}" +
+                            if (details.isBlank()) "." else ": $details",
+                        error
+                    )
+                }
+                delay((attemptIndex + 1) * 1_500L)
+            } catch (error: SocketTimeoutException) {
+                lastError = error
+                if (attemptIndex == 2) {
+                    throw IllegalStateException(
+                        "AI provider did not respond after 3 attempts. Check the Base URL, model name, or provider status.",
+                        error
+                    )
+                }
+                delay((attemptIndex + 1) * 1_500L)
+            }
         }
-        return response.choices.firstOrNull()?.message?.content ?: "No response from AI."
+        throw IllegalStateException(
+            "AI provider failed after 3 attempts: ${lastError?.message ?: "unknown error"}",
+            lastError
+        )
     }
 }
