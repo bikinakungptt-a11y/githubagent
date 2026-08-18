@@ -14,7 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.di.AppContainerProvider
-import com.example.domain.model.ApiFormat
 import com.example.domain.model.ReasoningLevel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,40 +82,12 @@ fun AIProviderScreen(
                 shape = RoundedCornerShape(8.dp)
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "API Format",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                "Auto Detect is recommended. Use a manual format only when a provider requires it.",
+                "API format is detected automatically from the provider Base URL.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(ApiFormat.values().toList()) { format ->
-                    FilterChip(
-                        selected = uiState.apiFormat == format,
-                        onClick = { viewModel.onApiFormatChanged(format) },
-                        label = {
-                            Text(
-                                when (format) {
-                                    ApiFormat.AUTO -> "Auto Detect"
-                                    ApiFormat.OPENAI_COMPATIBLE -> "OpenAI"
-                                    ApiFormat.ANTHROPIC -> "Anthropic"
-                                    ApiFormat.LEGACY_TEXT -> "Legacy"
-                                }
-                            )
-                        }
-                    )
-                }
-            }
 
             Spacer(modifier = Modifier.height(24.dp))
             Text(
