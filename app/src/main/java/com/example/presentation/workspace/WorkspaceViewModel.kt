@@ -91,16 +91,18 @@ class WorkspaceViewModel(
         attachments: List<com.example.agent.AgentAttachment> = emptyList()
     ) {
         val config = _agentConfig.value ?: return
-        if (request.isBlank()) return
+        if (request.isBlank() || _isAgentBusy.value) return
 
         val directInstruction = """
-            DIRECT AGENT MODE:
+            DIRECT MAXIMUM AGENT MODE:
             Understand the user's instruction naturally without requiring Ask/Edit/Fix/Auto Fix selection.
-            Inspect the repository before answering when repository evidence is needed.
-            If the user asks to create, edit, change, repair, remove, refactor, or implement code, use the repository tools and stage the requested file changes.
+            Work on any software-engineering task the user gives you, not only website tasks.
+            Inspect the repository before answering whenever repository evidence is needed.
+            If the user asks to create, edit, change, repair, remove, refactor, migrate, configure, optimize, test, or implement code, use the repository tools and stage every required file change.
             If the user only asks a question, answer it without editing files unless editing is clearly requested.
-            For multi-file work, continue until every requested file/change is completed or a real blocking error occurs.
-            Do not stop after the first edited file when the request clearly requires multiple files.
+            For multi-file or multi-step work, continue until every requested requirement is completed or a real blocking error occurs.
+            Do not stop after the first successful edit. Re-read staged files when useful and repair your own work before declaring completion.
+            Existing files already in Changes are part of your working tree. Preserve them unless the user's new instruction requires changing them.
         """.trimIndent()
 
         val textAttachments = attachments.mapNotNull { attachment ->
@@ -117,11 +119,21 @@ class WorkspaceViewModel(
         val apiKey = secureCredentialManager.getApiKey() ?: ""
         val aiClient = com.example.agent.AIClient(config, apiKey)
 
+        // One shared staged workspace is used by both readFile and updateFile.
+        // This lets the agent edit a file, read its new staged version, and improve it again.
+        val updateTool = UpdateFileTool(initialPatches = _pendingPatches.value)
+        val readTool = ReadFileTool(
+            gitHubService = gitHubService,
+            githubToken = token,
+            repositoryName = repositoryName,
+            branch = _selectedBranch.value,
+            stagedContentProvider = updateTool::getStagedContent
+        )
         val tools = listOf(
             ListFilesTool(gitHubService, token, repositoryName, _selectedBranch.value),
-            ReadFileTool(gitHubService, token, repositoryName, _selectedBranch.value),
+            readTool,
             SearchCodeTool(gitHubService, token, repositoryName),
-            UpdateFileTool()
+            updateTool
         )
 
         val engine = AgentEngine(config, tools, aiClient)
@@ -143,20 +155,13 @@ class WorkspaceViewModel(
             } catch (e: Exception) {
                 _messages.value = _messages.value + "Agent Error: ${e.message}"
             } finally {
-                // Preserve previous staged files and merge newly edited files by path.
-                // If the same path is edited again, the latest version replaces the older staged version.
-                val newlyPending = (tools.find { it.name == "updateFile" } as? UpdateFileTool)
-                    ?.getPendingPatches()
-                    .orEmpty()
-
-                if (newlyPending.isNotEmpty()) {
-                    val merged = (_pendingPatches.value + newlyPending)
-                        .associateBy { it.path }
-                        .values
-                        .toList()
-                    _pendingPatches.value = merged
+                val changedPaths = updateTool.getChangedPaths()
+                if (changedPaths.isNotEmpty()) {
+                    val allPending = updateTool.getPendingPatches()
+                    _pendingPatches.value = allPending
                     _messages.value = _messages.value +
-                        "System: ${merged.size} file(s) are ready in Changes for Commit / Push."
+                        "System: ${allPending.size} file(s) are ready in Changes for Commit / Push. " +
+                        "This run changed ${changedPaths.size} file(s)."
                 }
                 _isAgentBusy.value = false
             }
