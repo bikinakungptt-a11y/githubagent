@@ -60,20 +60,27 @@ class ListFilesTool(
         }
     }
 }
+
 class ReadFileTool(
     private val gitHubService: com.example.data.github.GitHubService,
     private val githubToken: String,
     private val repositoryName: String,
-    private val branch: String = "main"
+    private val branch: String = "main",
+    private val stagedContentProvider: (String) -> String? = { null }
 ) : AgentTool(
     name = "readFile",
-    description = "Reads the real UTF-8 content of a file from the selected GitHub repository. Argument: path."
+    description = "Reads the current UTF-8 content of a file. If the AI already staged an edit for that path, this returns the staged version. Arguments: path; optional startLine and endLine for a focused range."
 ) {
     override suspend fun execute(arguments: Map<String, String>): String {
         val path = arguments["path"]?.trim().orEmpty()
         if (path.isBlank()) return "Error: path argument is required."
-        if (githubToken.isBlank()) return "Error: GitHub PAT is missing."
 
+        val staged = stagedContentProvider(path)
+        if (staged != null) {
+            return formatContent(path, staged, arguments, source = "staged Changes")
+        }
+
+        if (githubToken.isBlank()) return "Error: GitHub PAT is missing."
         val parts = repositoryName.split("/", limit = 2)
         if (parts.size != 2) return "Error: invalid repository name '$repositoryName'."
 
@@ -94,15 +101,36 @@ class ReadFileTool(
                 } else {
                     val decoded = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
                         .toString(Charsets.UTF_8)
-                    if (decoded.length > 120_000) {
-                        decoded.take(120_000) + "\n\n[Content truncated at 120,000 characters]"
-                    } else {
-                        decoded
-                    }
+                    formatContent(path, decoded, arguments, source = "GitHub branch $branch")
                 }
             }
         } catch (error: Exception) {
             "Error reading '$path' from GitHub: ${error.message ?: error.javaClass.simpleName}"
+        }
+    }
+
+    private fun formatContent(
+        path: String,
+        content: String,
+        arguments: Map<String, String>,
+        source: String
+    ): String {
+        val lines = content.lines()
+        val requestedStart = arguments["startLine"]?.toIntOrNull()?.coerceAtLeast(1)
+        val requestedEnd = arguments["endLine"]?.toIntOrNull()?.coerceAtLeast(1)
+
+        if (requestedStart != null || requestedEnd != null) {
+            val start = (requestedStart ?: 1).coerceAtMost(lines.size.coerceAtLeast(1))
+            val end = (requestedEnd ?: lines.size).coerceIn(start, lines.size.coerceAtLeast(start))
+            val selected = if (lines.isEmpty()) "" else lines.subList(start - 1, end).joinToString("\n")
+            return "Source: $source\nFile: $path\nLines $start-$end of ${lines.size}\n\n$selected"
+        }
+
+        return if (content.length > 120_000) {
+            "Source: $source\nFile: $path\n\n" + content.take(120_000) +
+                "\n\n[Content truncated at 120,000 characters. Use startLine/endLine for focused reads.]"
+        } else {
+            "Source: $source\nFile: $path\n\n$content"
         }
     }
 }
@@ -141,27 +169,44 @@ class SearchCodeTool(
     }
 }
 
-class UpdateFileTool : AgentTool(
+class UpdateFileTool(
+    initialPatches: List<FilePatch> = emptyList()
+) : AgentTool(
     name = "updateFile",
-    description = "Updates the content of a file. Provide 'path' and 'modifiedContent'."
+    description = "Creates or replaces a staged file version in Changes. Provide path and the COMPLETE modifiedContent for the file. Re-editing the same path replaces the older staged version instead of creating a duplicate."
 ) {
-    private val pendingPatches = mutableListOf<FilePatch>()
+    private val pendingPatches = linkedMapOf<String, FilePatch>()
+    private val changedPaths = linkedSetOf<String>()
+
+    init {
+        initialPatches.forEach { patch -> pendingPatches[patch.path] = patch }
+    }
 
     override suspend fun execute(arguments: Map<String, String>): String {
-        val path = arguments["path"] ?: return "Error: path argument is required."
-        val modifiedContent = arguments["modifiedContent"] ?: return "Error: modifiedContent is required."
-        
-        pendingPatches.add(
-            FilePatch(
-                path = path,
-                originalContent = null,
-                modifiedContent = modifiedContent,
-                explanation = "Updated by AI Agent"
-            )
+        val path = arguments["path"]?.trim().orEmpty()
+        if (path.isBlank()) return "Error: path argument is required."
+        val modifiedContent = arguments["modifiedContent"]
+            ?: return "Error: modifiedContent is required."
+
+        val previous = pendingPatches[path]
+        pendingPatches[path] = FilePatch(
+            path = path,
+            originalContent = previous?.originalContent,
+            modifiedContent = modifiedContent,
+            explanation = "Updated by AI Agent"
         )
-        
-        return "Successfully staged update for $path."
+        changedPaths += path
+
+        return if (previous == null) {
+            "Successfully staged $path. The staged version is now available to readFile for verification."
+        } else {
+            "Successfully replaced the staged version of $path with the latest AI edit."
+        }
     }
-    
-    fun getPendingPatches(): List<FilePatch> = pendingPatches.toList()
+
+    fun getPendingPatches(): List<FilePatch> = pendingPatches.values.toList()
+
+    fun getStagedContent(path: String): String? = pendingPatches[path]?.modifiedContent
+
+    fun getChangedPaths(): Set<String> = changedPaths.toSet()
 }
