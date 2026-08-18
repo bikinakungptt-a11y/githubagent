@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
-import com.example.domain.model.ApiFormat
 import com.example.domain.model.ReasoningLevel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -28,16 +27,6 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveModelName(name: String) {
         context.dataStore.edit { it[MODEL_NAME_KEY] = name }
-    }
-
-    private val API_FORMAT_KEY = stringPreferencesKey("api_format")
-    val apiFormatFlow: Flow<ApiFormat> = context.dataStore.data.map {
-        val name = it[API_FORMAT_KEY] ?: ApiFormat.AUTO.name
-        runCatching { ApiFormat.valueOf(name) }.getOrDefault(ApiFormat.AUTO)
-    }
-
-    suspend fun saveApiFormat(format: ApiFormat) {
-        context.dataStore.edit { it[API_FORMAT_KEY] = format.name }
     }
 
     private val REASONING_LEVEL_KEY = stringPreferencesKey("reasoning_level")
