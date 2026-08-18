@@ -3,9 +3,7 @@ package com.example.presentation.workspace
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,8 +15,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -27,9 +25,10 @@ import com.example.di.AppContainerProvider
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkspaceScreen(
-    repositoryName: String, 
+    repositoryName: String,
     onNavigateBack: () -> Unit,
     onOpenFiles: () -> Unit = {},
+    onOpenChanges: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     viewModel: WorkspaceViewModel = viewModel(
         factory = WorkspaceViewModelFactory(
@@ -46,6 +45,7 @@ fun WorkspaceScreen(
     var attachments by remember { mutableStateOf<List<com.example.agent.AgentAttachment>>(emptyList()) }
     var attachmentError by remember { mutableStateOf<String?>(null) }
     var showUploadConfirmation by remember { mutableStateOf(false) }
+
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
@@ -67,7 +67,9 @@ fun WorkspaceScreen(
                     selected += com.example.agent.AgentAttachment(name, mime, dataUrl = "data:$mime;base64,$encoded")
                 } else {
                     val textTypes = listOf("text/", "json", "xml", "javascript", "kotlin", "java", "yaml", "toml")
-                    if (textTypes.any { mime.contains(it, ignoreCase = true) } || name.substringAfterLast('.', "") in listOf("kt","java","js","ts","py","md","txt","json","xml","yml","yaml","toml","gradle","properties")) {
+                    if (textTypes.any { mime.contains(it, ignoreCase = true) } ||
+                        name.substringAfterLast('.', "") in listOf("kt", "java", "js", "ts", "py", "md", "txt", "json", "xml", "yml", "yaml", "toml", "gradle", "properties")
+                    ) {
                         selected += com.example.agent.AgentAttachment(name, mime, textContent = bytes.toString(Charsets.UTF_8))
                     } else {
                         attachmentError = "$name is not a supported text/code or image file."
@@ -79,44 +81,23 @@ fun WorkspaceScreen(
         }
         attachments = (attachments + selected).distinctBy { it.name }.take(5)
     }
+
     val messages by viewModel.messages.collectAsState()
     val isBusy by viewModel.isAgentBusy.collectAsState()
     val config by viewModel.agentConfig.collectAsState()
     val pendingPatches by viewModel.pendingPatches.collectAsState()
     val branches by viewModel.branches.collectAsState()
     val selectedBranch by viewModel.selectedBranch.collectAsState()
-    
-    var selectedMode by remember { mutableStateOf("Ask") }
-    val modes = listOf("Ask", "Edit", "Fix", "Auto Fix")
 
     var showRepoSheet by remember { mutableStateOf(false) }
     var showBranchSheet by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
 
-    // Ideally, pendingPatches would move to Changes tab, 
-    // but for now we display it as a banner or handle it here if it exists.
-    if (pendingPatches.isNotEmpty()) {
-        DiffPreviewScreen(
-            patches = pendingPatches,
-            onCommit = { message -> viewModel.confirmCommit(message) },
-            onCancel = { viewModel.cancelCommit() },
-            isCommitting = isBusy,
-            statusMessage = messages.lastOrNull {
-                it.startsWith("System: Committing") ||
-                    it.startsWith("System: Successfully pushed") ||
-                    it.startsWith("System Error pushing")
-            }
-        )
-        return
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Column(
-                        modifier = Modifier.clickable { showRepoSheet = true }
-                    ) {
+                    Column(modifier = Modifier.clickable { showRepoSheet = true }) {
                         Text("AI Coding Agent", style = MaterialTheme.typography.titleMedium)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Circle, contentDescription = "Online", tint = Color.Green, modifier = Modifier.size(8.dp))
@@ -148,36 +129,26 @@ fun WorkspaceScreen(
                         Icon(Icons.Default.MoreVert, contentDescription = "More")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         bottomBar = {
-            Surface(
-                color = Color.Black,
-                tonalElevation = 0.dp,
-                shadowElevation = 8.dp
-            ) {
+            Surface(color = Color.Black, tonalElevation = 0.dp, shadowElevation = 8.dp) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Button(
+                        onClick = onOpenChanges,
+                        enabled = pendingPatches.isNotEmpty() && !isBusy,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
                     ) {
-                        modes.forEach { mode ->
-                            FilterChip(
-                                selected = selectedMode == mode,
-                                onClick = { selectedMode = mode },
-                                label = { Text(mode, style = MaterialTheme.typography.labelSmall) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    containerColor = Color.Black,
-                                    labelColor = Color.White,
-                                    selectedContainerColor = Color(0xFF1565C0),
-                                    selectedLabelColor = Color.White
-                                )
-                            )
-                        }
+                        Icon(Icons.Default.CloudUpload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (pendingPatches.isEmpty()) "Commit / Push"
+                            else "Commit / Push (${pendingPatches.size} file${if (pendingPatches.size == 1) "" else "s"})"
+                        )
                     }
+
                     if (attachments.isNotEmpty()) {
                         androidx.compose.foundation.lazy.LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -195,21 +166,14 @@ fun WorkspaceScreen(
                     attachmentError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { filePicker.launch(arrayOf("image/*", "text/*", "application/json", "application/xml")) }) {
-                            Icon(
-                                Icons.Default.Add,
-                                contentDescription = "Upload photo or file",
-                                tint = Color.White
-                            )
+                            Icon(Icons.Default.Add, contentDescription = "Upload photo or file", tint = Color.White)
                         }
                         OutlinedTextField(
                             value = prompt,
                             onValueChange = { prompt = it },
-                            placeholder = { Text("Ask AI to inspect, fix, or modify this repository...") },
+                            placeholder = { Text("Tell the AI what to inspect, create, fix, or change...") },
                             modifier = Modifier.weight(1f),
                             maxLines = 4,
                             shape = RoundedCornerShape(20.dp),
@@ -228,7 +192,7 @@ fun WorkspaceScreen(
                         IconButton(
                             onClick = {
                                 if (attachments.isEmpty()) {
-                                    viewModel.submitRequest(prompt, selectedMode)
+                                    viewModel.submitRequest(prompt)
                                     prompt = ""
                                 } else {
                                     showUploadConfirmation = true
@@ -237,7 +201,7 @@ fun WorkspaceScreen(
                             enabled = !isBusy && prompt.isNotBlank()
                         ) {
                             Icon(
-                                Icons.Default.Send, 
+                                Icons.Default.Send,
                                 contentDescription = "Send",
                                 tint = if (!isBusy && prompt.isNotBlank()) Color(0xFF42A5F5) else Color.White.copy(alpha = 0.38f)
                             )
@@ -249,10 +213,7 @@ fun WorkspaceScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -265,14 +226,10 @@ fun WorkspaceScreen(
                     SystemMessage(msg)
                 }
             }
-            if (isBusy) {
-                item {
-                    AgentThinkingStatus()
-                }
-            }
+            if (isBusy) item { AgentThinkingStatus() }
         }
     }
-    
+
     if (showUploadConfirmation) {
         AlertDialog(
             onDismissRequest = { showUploadConfirmation = false },
@@ -282,7 +239,7 @@ fun WorkspaceScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    viewModel.submitRequest(prompt, selectedMode, attachments)
+                    viewModel.submitRequest(prompt, attachments = attachments)
                     prompt = ""
                     attachments = emptyList()
                     showUploadConfirmation = false
@@ -295,18 +252,10 @@ fun WorkspaceScreen(
     }
 
     if (showMoreMenu) {
-        DropdownMenu(
-            expanded = true,
-            onDismissRequest = { showMoreMenu = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text("Open files") },
-                onClick = { showMoreMenu = false; onOpenFiles() }
-            )
-            DropdownMenuItem(
-                text = { Text("Settings") },
-                onClick = { showMoreMenu = false; onOpenSettings() }
-            )
+        DropdownMenu(expanded = true, onDismissRequest = { showMoreMenu = false }) {
+            DropdownMenuItem(text = { Text("Open files") }, onClick = { showMoreMenu = false; onOpenFiles() })
+            DropdownMenuItem(text = { Text("Review changes") }, onClick = { showMoreMenu = false; onOpenChanges() })
+            DropdownMenuItem(text = { Text("Settings") }, onClick = { showMoreMenu = false; onOpenSettings() })
         }
     }
 
@@ -334,9 +283,7 @@ fun WorkspaceScreen(
                     ListItem(
                         headlineContent = { Text(branch) },
                         leadingContent = {
-                            if (branch == selectedBranch) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Green)
-                            }
+                            if (branch == selectedBranch) Icon(Icons.Default.Check, contentDescription = null, tint = Color.Green)
                         },
                         modifier = Modifier.clickable {
                             viewModel.selectBranch(branch)
@@ -353,15 +300,8 @@ fun WorkspaceScreen(
 @Composable
 fun UserMessage(text: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(16.dp, 16.dp, 0.dp, 16.dp)
-        ) {
-            Text(
-                text = text,
-                modifier = Modifier.padding(12.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp, 16.dp, 0.dp, 16.dp)) {
+            Text(text = text, modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -369,9 +309,7 @@ fun UserMessage(text: String) {
 @Composable
 fun AgentMessage(text: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-        Surface(
-            color = Color.Transparent,
-        ) {
+        Surface(color = Color.Transparent) {
             Column {
                 Text(
                     text = "AI",
@@ -380,10 +318,7 @@ fun AgentMessage(text: String) {
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
-                Text(
-                    text = text,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                Text(text = text, color = MaterialTheme.colorScheme.onBackground)
             }
         }
     }
@@ -392,23 +327,14 @@ fun AgentMessage(text: String) {
 @Composable
 fun SystemMessage(text: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text(text = text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 fun AgentThinkingStatus() {
     var expanded by remember { mutableStateOf(false) }
-    
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -416,27 +342,19 @@ fun AgentThinkingStatus() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
                     Text("Thinking deeply", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 }
-                IconButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.size(24.dp)
-                ) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) {
                     Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = "Expand")
                 }
             }
-            
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.padding(top = 8.dp, start = 24.dp)) {
                     Text("Searching repository...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Reading MainActivity.kt...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Preparing fix...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Reading relevant files...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Preparing changes...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
