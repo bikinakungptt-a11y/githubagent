@@ -84,8 +84,18 @@ class AgentContextManager(
     }
 
     fun buildPrompt(extraInstruction: String? = null): String {
+        val controlBlock = if (extraInstruction.isNullOrBlank()) {
+            ""
+        } else {
+            buildString {
+                appendLine("--- CURRENT CONTROL INSTRUCTION ---")
+                appendLine(extraInstruction.trim())
+                appendLine("--- END CURRENT CONTROL INSTRUCTION ---")
+            }
+        }
+
         val fixedHeader = buildString {
-            append(basePrompt.trim())
+            append(compact(basePrompt.trim(), (maxContextChars * 2) / 3))
             appendLine()
             appendLine()
             appendLine("--- COMPACT WORKING MEMORY ---")
@@ -95,7 +105,11 @@ class AgentContextManager(
             )
         }
 
-        val remainingBudget = (maxContextChars - fixedHeader.length - 2_000).coerceAtLeast(20_000)
+        // Reserve space for the current instruction so context trimming can never cut off
+        // the instruction that tells the model what to do on this iteration.
+        val remainingBudget = (
+            maxContextChars - fixedHeader.length - controlBlock.length - 2_000
+        ).coerceAtLeast(12_000)
         val selectedMemory = mutableListOf<String>()
         var used = 0
 
@@ -129,13 +143,14 @@ class AgentContextManager(
                 appendLine()
             }
             appendLine("--- END COMPACT WORKING MEMORY ---")
-            if (!extraInstruction.isNullOrBlank()) {
+            if (controlBlock.isNotBlank()) {
                 appendLine()
-                appendLine("--- CURRENT CONTROL INSTRUCTION ---")
-                appendLine(extraInstruction.trim())
-                appendLine("--- END CURRENT CONTROL INSTRUCTION ---")
+                append(controlBlock)
             }
-        }.take(maxContextChars)
+        }.let { built ->
+            if (built.length <= maxContextChars) built
+            else compact(built, maxContextChars)
+        }
     }
 
     fun snapshot(): AgentContextSnapshot = AgentContextSnapshot(
