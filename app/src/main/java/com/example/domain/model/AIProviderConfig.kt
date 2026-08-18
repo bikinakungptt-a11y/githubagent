@@ -9,7 +9,6 @@ enum class ReasoningLevel {
 }
 
 enum class ApiFormat {
-    AUTO,
     OPENAI_COMPATIBLE,
     ANTHROPIC,
     LEGACY_TEXT
@@ -27,7 +26,6 @@ data class ModelCapabilities(
 data class AIProviderConfig(
     val baseUrl: String = "",
     val modelName: String = "",
-    val apiFormat: ApiFormat = ApiFormat.AUTO,
     val maxOutputTokens: Int = 4096,
     val temperature: Float = 0.7f,
     val reasoningModeEnabled: Boolean = true,
