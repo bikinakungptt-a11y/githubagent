@@ -84,6 +84,8 @@ fun WorkspaceScreen(
 
     val messages by viewModel.messages.collectAsState()
     val isBusy by viewModel.isAgentBusy.collectAsState()
+    val liveStatus by viewModel.liveAgentStatus.collectAsState()
+    val canResume by viewModel.canResume.collectAsState()
     val config by viewModel.agentConfig.collectAsState()
     val pendingPatches by viewModel.pendingPatches.collectAsState()
     val branches by viewModel.branches.collectAsState()
@@ -135,6 +137,20 @@ fun WorkspaceScreen(
         bottomBar = {
             Surface(color = Color.Black, tonalElevation = 0.dp, shadowElevation = 8.dp) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+                    if (canResume && !isBusy) {
+                        Button(
+                            onClick = { viewModel.resumeLastRequest() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Retry / Continue from checkpoint")
+                        }
+                    }
+
                     Button(
                         onClick = onOpenChanges,
                         enabled = pendingPatches.isNotEmpty() && !isBusy,
@@ -226,7 +242,7 @@ fun WorkspaceScreen(
                     SystemMessage(msg)
                 }
             }
-            if (isBusy) item { AgentThinkingStatus() }
+            if (isBusy) item { AgentThinkingStatus(liveStatus) }
         }
     }
 
@@ -255,6 +271,12 @@ fun WorkspaceScreen(
         DropdownMenu(expanded = true, onDismissRequest = { showMoreMenu = false }) {
             DropdownMenuItem(text = { Text("Open files") }, onClick = { showMoreMenu = false; onOpenFiles() })
             DropdownMenuItem(text = { Text("Review changes") }, onClick = { showMoreMenu = false; onOpenChanges() })
+            if (canResume) {
+                DropdownMenuItem(
+                    text = { Text("Retry / Continue") },
+                    onClick = { showMoreMenu = false; viewModel.resumeLastRequest() }
+                )
+            }
             DropdownMenuItem(text = { Text("Settings") }, onClick = { showMoreMenu = false; onOpenSettings() })
         }
     }
@@ -332,7 +354,7 @@ fun SystemMessage(text: String) {
 }
 
 @Composable
-fun AgentThinkingStatus() {
+fun AgentThinkingStatus(status: String) {
     var expanded by remember { mutableStateOf(false) }
     Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -341,10 +363,15 @@ fun AgentThinkingStatus() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
-                    Text("Thinking deeply", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2
+                    )
                 }
                 IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) {
                     Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = "Expand")
@@ -352,9 +379,9 @@ fun AgentThinkingStatus() {
             }
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.padding(top = 8.dp, start = 24.dp)) {
-                    Text("Searching repository...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Reading relevant files...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Preparing changes...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Streaming provider response when supported...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Keeping bounded repository context...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Saving resumable checkpoints...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
