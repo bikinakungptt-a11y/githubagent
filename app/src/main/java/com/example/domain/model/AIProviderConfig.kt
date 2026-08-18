@@ -8,6 +8,13 @@ enum class ReasoningLevel {
     MAXIMUM
 }
 
+enum class ApiFormat {
+    AUTO,
+    OPENAI_COMPATIBLE,
+    ANTHROPIC,
+    LEGACY_TEXT
+}
+
 data class ModelCapabilities(
     val supportsReasoning: Boolean,
     val supportedReasoningLevels: List<ReasoningLevel>,
@@ -20,6 +27,7 @@ data class ModelCapabilities(
 data class AIProviderConfig(
     val baseUrl: String = "",
     val modelName: String = "",
+    val apiFormat: ApiFormat = ApiFormat.AUTO,
     val maxOutputTokens: Int = 4096,
     val temperature: Float = 0.7f,
     val reasoningModeEnabled: Boolean = true,
