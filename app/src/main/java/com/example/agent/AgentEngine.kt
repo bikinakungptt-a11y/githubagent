@@ -390,7 +390,8 @@ class AgentEngine(
         - Never answer only "I will read the files", "Saya akan membaca repo", "I will continue", or similar future-tense narration.
         - You may request up to 6 tool calls in one iteration.
         - Batch independent listFiles/readFile/searchCode calls when useful.
-        - You may stage several independent updateFile calls in one iteration when their complete contents are known.
+        - For large edits, request at most 1-2 updateFile calls per iteration so the provider can stream the response reliably; continue remaining large files in the next iteration.
+        - Small updateFile payloads may still be batched when they are clearly safe.
         - For updateFile, always provide the COMPLETE final file content, never only a patch fragment.
 
         LEGACY TOOL FALLBACK:
