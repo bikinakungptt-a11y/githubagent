@@ -3,7 +3,9 @@ package com.example.presentation.aiprovider
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -12,8 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.di.AppContainerProvider
+import com.example.domain.model.ApiFormat
 import com.example.domain.model.ReasoningLevel
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,7 +29,7 @@ fun AIProviderScreen(
     )
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -44,8 +46,18 @@ fun AIProviderScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            Text("API Configuration", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            Text(
+                "API Configuration",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
                 value = uiState.apiKey,
@@ -70,10 +82,53 @@ fun AIProviderScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp)
             )
+
             Spacer(modifier = Modifier.height(24.dp))
-            Text("Reasoning Effort", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            Text(
+                "API Format",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Auto Detect is recommended. Use a manual format only when a provider requires it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(ApiFormat.values().toList()) { format ->
+                    FilterChip(
+                        selected = uiState.apiFormat == format,
+                        onClick = { viewModel.onApiFormatChanged(format) },
+                        label = {
+                            Text(
+                                when (format) {
+                                    ApiFormat.AUTO -> "Auto Detect"
+                                    ApiFormat.OPENAI_COMPATIBLE -> "OpenAI"
+                                    ApiFormat.ANTHROPIC -> "Anthropic"
+                                    ApiFormat.LEGACY_TEXT -> "Legacy"
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                "Reasoning Effort",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 items(ReasoningLevel.values().toList()) { level ->
                     FilterChip(
                         selected = uiState.reasoningLevel == level,
@@ -82,21 +137,34 @@ fun AIProviderScreen(
                     )
                 }
             }
+
             Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = { viewModel.testConnection() }, modifier = Modifier.fillMaxWidth()) {
-                Text("Test Connection")
+            Button(
+                onClick = { viewModel.testConnection() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Check Configuration")
             }
             if (uiState.connectionStatus.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(uiState.connectionStatus, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    uiState.connectionStatus,
+                    color = MaterialTheme.colorScheme.secondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
-            Spacer(modifier = Modifier.weight(1f))
-            Button(onClick = { 
-                viewModel.save()
-                onNavigateBack()
-            }, modifier = Modifier.fillMaxWidth()) {
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = {
+                    viewModel.save()
+                    onNavigateBack()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("Save & Close")
             }
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
