@@ -4,10 +4,30 @@ import com.example.agent.patch.FilePatch
 
 abstract class AgentTool(
     val name: String,
-    val description: String
+    val description: String,
+    val inputSchema: Map<String, Any>
 ) {
     abstract suspend fun execute(arguments: Map<String, String>): String
 }
+
+private fun objectSchema(
+    properties: Map<String, Map<String, Any>>,
+    required: List<String> = emptyList()
+): Map<String, Any> = mapOf(
+    "type" to "object",
+    "properties" to properties,
+    "required" to required
+)
+
+private fun stringProperty(description: String): Map<String, Any> = mapOf(
+    "type" to "string",
+    "description" to description
+)
+
+private fun integerProperty(description: String): Map<String, Any> = mapOf(
+    "type" to "integer",
+    "description" to description
+)
 
 class ListFilesTool(
     private val gitHubService: com.example.data.github.GitHubService,
@@ -16,7 +36,12 @@ class ListFilesTool(
     private val branch: String = "main"
 ) : AgentTool(
     name = "listFiles",
-    description = "Lists the complete recursive file and folder tree of the selected GitHub repository. Optional argument: path filters the tree to a folder. Use this before reading or editing files."
+    description = "List the recursive file and folder tree of the selected GitHub repository. Optionally limit the listing to a folder path.",
+    inputSchema = objectSchema(
+        properties = mapOf(
+            "path" to stringProperty("Optional repository folder path. Use an empty value or omit it for the repository root.")
+        )
+    )
 ) {
     override suspend fun execute(arguments: Map<String, String>): String {
         if (githubToken.isBlank()) return "Error: GitHub PAT is missing."
@@ -38,7 +63,10 @@ class ListFilesTool(
                         entry.path == requestedPath ||
                         entry.path.startsWith("$requestedPath/")
                 }
-                .sortedWith(compareBy<com.example.data.github.GitHubTreeEntry> { it.type != "tree" }.thenBy { it.path })
+                .sortedWith(
+                    compareBy<com.example.data.github.GitHubTreeEntry> { it.type != "tree" }
+                        .thenBy { it.path }
+                )
                 .toList()
 
             if (entries.isEmpty()) {
@@ -69,7 +97,15 @@ class ReadFileTool(
     private val stagedContentProvider: (String) -> String? = { null }
 ) : AgentTool(
     name = "readFile",
-    description = "Reads the current UTF-8 content of a file. If the AI already staged an edit for that path, this returns the staged version. Arguments: path; optional startLine and endLine for a focused range."
+    description = "Read the current UTF-8 content of a repository file. If the path has a staged edit in Changes, read that latest staged version. Use optional line numbers for focused reads.",
+    inputSchema = objectSchema(
+        properties = mapOf(
+            "path" to stringProperty("Repository-relative file path to read."),
+            "startLine" to integerProperty("Optional 1-based first line to return."),
+            "endLine" to integerProperty("Optional 1-based last line to return.")
+        ),
+        required = listOf("path")
+    )
 ) {
     override suspend fun execute(arguments: Map<String, String>): String {
         val path = arguments["path"]?.trim().orEmpty()
@@ -141,7 +177,13 @@ class SearchCodeTool(
     private val repositoryName: String
 ) : AgentTool(
     name = "searchCode",
-    description = "Searches real code in the selected GitHub repository. Argument: query."
+    description = "Search real code in the selected GitHub repository for a technical term, symbol, class, function, text, or related keyword.",
+    inputSchema = objectSchema(
+        properties = mapOf(
+            "query" to stringProperty("Code search query. Use concise technical terms and try related terms when needed.")
+        ),
+        required = listOf("query")
+    )
 ) {
     override suspend fun execute(arguments: Map<String, String>): String {
         val query = arguments["query"]?.trim().orEmpty()
@@ -173,7 +215,14 @@ class UpdateFileTool(
     initialPatches: List<FilePatch> = emptyList()
 ) : AgentTool(
     name = "updateFile",
-    description = "Creates or replaces a staged file version in Changes. Provide path and the COMPLETE modifiedContent for the file. Re-editing the same path replaces the older staged version instead of creating a duplicate."
+    description = "Create or replace a staged file version in Changes. Supply the repository-relative path and the COMPLETE final content of the file. Re-editing the same path replaces the older staged version.",
+    inputSchema = objectSchema(
+        properties = mapOf(
+            "path" to stringProperty("Repository-relative file path to create or replace in staged Changes."),
+            "modifiedContent" to stringProperty("Complete final UTF-8 content for the file, not a diff or patch fragment.")
+        ),
+        required = listOf("path", "modifiedContent")
+    )
 ) {
     private val pendingPatches = linkedMapOf<String, FilePatch>()
     private val changedPaths = linkedSetOf<String>()
