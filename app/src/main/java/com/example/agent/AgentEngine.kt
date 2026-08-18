@@ -5,8 +5,9 @@ import com.example.domain.model.AIProviderConfig
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 
 class AgentEngine(
     private val config: AIProviderConfig,
@@ -17,36 +18,78 @@ class AgentEngine(
         request: String,
         repoContext: String,
         attachments: List<AgentAttachment> = emptyList(),
-        requireToolOnStart: Boolean = false
-    ): Flow<AgentStatus> = flow {
-        emit(AgentStatus("Analyzing Request..."))
-
+        requireToolOnStart: Boolean = false,
+        resumeState: AgentResumeState? = null,
+        onCheckpoint: (AgentResumeState) -> Unit = {}
+    ): Flow<AgentStatus> = channelFlow {
         val listFilesTool = tools.find { it.name == "listFiles" }
-        val repositoryRoot = if (listFilesTool == null) {
-            "Repository listing tool is not configured."
-        } else {
-            try {
-                listFilesTool.execute(emptyMap())
-            } catch (error: Exception) {
-                "Repository listing failed: ${error.message ?: error.javaClass.simpleName}"
-            }
-        }
 
-        val normalizedRequest = request.lowercase()
-        val workflowContext = if (
-            listFilesTool != null &&
-            listOf("github", "workflow", "action", "build", ".yml", ".yaml")
-                .any { normalizedRequest.contains(it) }
-        ) {
-            try {
-                "\n\n" + listFilesTool.execute(mapOf("path" to ".github/workflows"))
-            } catch (error: Exception) {
-                "\n\nWorkflow folder inspection failed: ${error.message ?: error.javaClass.simpleName}"
+        val basePrompt: String
+        var iterations: Int
+        var accessCorrectionAttempts: Int
+        var completionAuditRequested: Boolean
+        var completionCorrectionAttempts: Int
+        var noToolActionCorrectionAttempts: Int
+        var forceToolNextTurn: Boolean
+        var controlInstruction: String
+        val contextManager: AgentContextManager
+
+        if (resumeState == null) {
+            send(AgentStatus("Analyzing Request..."))
+
+            val repositoryRoot = if (listFilesTool == null) {
+                "Repository listing tool is not configured."
+            } else {
+                try {
+                    listFilesTool.execute(emptyMap())
+                } catch (error: Exception) {
+                    "Repository listing failed: ${error.message ?: error.javaClass.simpleName}"
+                }
             }
+
+            val normalizedRequest = request.lowercase()
+            val workflowContext = if (
+                listFilesTool != null &&
+                listOf("github", "workflow", "action", "build", ".yml", ".yaml")
+                    .any { normalizedRequest.contains(it) }
+            ) {
+                try {
+                    "\n\n" + listFilesTool.execute(mapOf("path" to ".github/workflows"))
+                } catch (error: Exception) {
+                    "\n\nWorkflow folder inspection failed: ${error.message ?: error.javaClass.simpleName}"
+                }
+            } else {
+                ""
+            }
+
+            val repositorySnapshot = compactBaseText(repositoryRoot + workflowContext, 50_000)
+            basePrompt = buildBasePrompt(repoContext, repositorySnapshot, request)
+            contextManager = AgentContextManager(basePrompt)
+            iterations = 0
+            accessCorrectionAttempts = 0
+            completionAuditRequested = false
+            completionCorrectionAttempts = 0
+            noToolActionCorrectionAttempts = 0
+            forceToolNextTurn = requireToolOnStart
+            controlInstruction = "Start the task now. Use repository tools immediately when repository evidence or edits are required."
         } else {
-            ""
+            send(
+                AgentStatus(
+                    "Resuming saved agent session from iteration ${resumeState.iterations + 1} without re-reading completed work..."
+                )
+            )
+            basePrompt = resumeState.basePrompt
+            contextManager = AgentContextManager(basePrompt, resumeState.contextSnapshot)
+            iterations = resumeState.iterations
+            accessCorrectionAttempts = resumeState.accessCorrectionAttempts
+            completionAuditRequested = resumeState.completionAuditRequested
+            completionCorrectionAttempts = resumeState.completionCorrectionAttempts
+            noToolActionCorrectionAttempts = resumeState.noToolActionCorrectionAttempts
+            forceToolNextTurn = resumeState.forceToolNextTurn
+            controlInstruction = resumeState.controlInstruction.ifBlank {
+                "Resume the ORIGINAL task from the saved working memory. Do not repeat completed repository reads or edits unless verification requires it."
+            }
         }
-        val repositorySnapshot = repositoryRoot + workflowContext
 
         val toolDefinitions = tools.map { tool ->
             AgentFunctionDefinition(
@@ -56,67 +99,9 @@ class AgentEngine(
             )
         }
 
-        var currentPrompt = """
-            You are a senior autonomous software-engineering AI agent working at maximum effort.
-            You have access to repository: $repoContext through real tools provided by this Android application.
-            The application has already inspected the repository and returned this real result:
-
-            --- REPOSITORY SNAPSHOT ---
-            $repositorySnapshot
-            --- END REPOSITORY SNAPSHOT ---
-
-            CORE EXECUTION RULES:
-            - Work on ANY repository task the user asks for: frontend, backend, Android, APIs, infrastructure, configuration, CI, refactors, debugging, migrations, tests, documentation, or other software work.
-            - Treat the user's complete request as a checklist of requirements. Keep working until every explicit requirement is completed, intentionally excluded with a clear reason, or blocked by a real external limitation.
-            - Do not stop after one file or one successful change when the task requires more work.
-            - Prefer evidence over assumptions. Inspect relevant files and dependencies before changing them.
-            - After editing important files, re-read staged versions and check imports, references, routes, configuration, syntax relationships, and cross-file consistency.
-            - readFile returns the staged Changes version when that file has already been edited, so use it to inspect and improve your own latest work.
-            - Never claim a file was changed unless updateFile successfully staged it.
-            - Never commit or push. The user reviews staged Changes and performs Commit / Push separately.
-
-            TOOL EXECUTION RULES:
-            - Native function/tool calling is the PRIMARY tool mechanism. When the API exposes repository functions, CALL them directly instead of writing that you will call them.
-            - Never answer only "I will read the files", "Saya akan membaca repo", "I will continue", or similar future-tense narration. Actually invoke the required tool in that same turn.
-            - You may request up to 6 tool calls in one iteration.
-            - For independent inspection, batch several listFiles/readFile/searchCode calls together.
-            - You may stage several independent updateFile calls in one iteration when their complete contents are known.
-            - Tool calls execute in the order requested. You can updateFile and then readFile the same path to verify the staged result.
-            - For updateFile, always provide the COMPLETE final file content, never only a patch fragment.
-
-            LEGACY TOOL FALLBACK:
-            - Only when native tool calling is unavailable, you may request tools with this exact text format:
-              <tool name="toolName">{"argName":"argValue"}</tool>
-            - Several legacy <tool> tags may be returned in one response, up to 6.
-
-            REPOSITORY ACCESS RULES:
-            - The repository tools are real and available through this Android application.
-            - Never say repository access is unavailable when the snapshot above contains repository entries.
-            - Use listFiles, searchCode, and readFile whenever more evidence is needed.
-            - Do not invent file names or repository contents.
-
-            NATURAL-LANGUAGE RULES:
-            - Understand Indonesian and English, including informal spelling, short instructions, typos, and non-technical wording.
-            - Infer the user's goal from context instead of searching only the exact words they typed.
-            - Translate user intent into likely technical concepts, file names, APIs, classes, dependencies, and related search terms.
-            - Never conclude that a feature is absent after only one literal keyword search.
-            - Ask one short clarification only when two materially different interpretations remain after inspecting the repository and guessing would materially risk the user's project.
-            - Reply in the same language as the user unless they request otherwise.
-
-            Available tools:
-            ${tools.joinToString("\n") { "- ${it.name}: ${it.description}" }}
-
-            COMPLETION RULE:
-            - Before finishing any task, perform a completion audit against the ORIGINAL user request.
-            - If anything is incomplete, CALL tools and continue working. Do not merely say that you will continue.
-            - Only when the task is genuinely complete should the final answer contain no tool calls/tags and end with:
-              <task_complete>true</task_complete>
-
-            User request: $request
-        """.trimIndent()
-
         val maxIterations = 48
         val maxToolsPerIteration = 6
+        val maxProviderResumeAttempts = 2
         val toolRegex = "<tool name=\"([a-zA-Z][a-zA-Z0-9_]*)\">(.*?)</tool>"
             .toRegex(RegexOption.DOT_MATCHES_ALL)
         val moshi = Moshi.Builder()
@@ -126,25 +111,85 @@ class AgentEngine(
             Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
         )
 
-        var iterations = 0
-        var accessCorrectionAttempts = 0
-        var completionAuditRequested = false
-        var completionCorrectionAttempts = 0
-        var noToolActionCorrectionAttempts = 0
-        var forceToolNextTurn = requireToolOnStart
+        var providerResumeAttempts = 0
+
+        fun checkpoint() {
+            onCheckpoint(
+                AgentResumeState(
+                    basePrompt = basePrompt,
+                    originalRequest = request,
+                    repoContext = repoContext,
+                    contextSnapshot = contextManager.snapshot(),
+                    iterations = iterations,
+                    accessCorrectionAttempts = accessCorrectionAttempts,
+                    completionAuditRequested = completionAuditRequested,
+                    completionCorrectionAttempts = completionCorrectionAttempts,
+                    noToolActionCorrectionAttempts = noToolActionCorrectionAttempts,
+                    forceToolNextTurn = forceToolNextTurn,
+                    requireToolOnStart = requireToolOnStart,
+                    controlInstruction = controlInstruction
+                )
+            )
+        }
+
+        checkpoint()
 
         while (iterations < maxIterations) {
-            emit(AgentStatus("Thinking deeply... (Iteration ${iterations + 1})"))
+            send(AgentStatus("Thinking deeply... (Iteration ${iterations + 1})"))
+            send(AgentStatus("Opening streamed AI response...", transient = true))
+            checkpoint()
 
-            val modelResponse = aiClient.analyze(
-                prompt = currentPrompt,
-                attachments = if (iterations == 0) attachments else emptyList(),
-                toolDefinitions = toolDefinitions,
-                requireTool = forceToolNextTurn
-            )
+            val modelResponse = try {
+                aiClient.analyze(
+                    prompt = contextManager.buildPrompt(controlInstruction),
+                    attachments = if (iterations == 0 && resumeState == null) attachments else emptyList(),
+                    toolDefinitions = toolDefinitions,
+                    requireTool = forceToolNextTurn,
+                    onStreamProgress = { progress ->
+                        trySend(
+                            AgentStatus(
+                                message = "Streaming AI response... ${progress.chunks} chunks received",
+                                transient = true
+                            )
+                        )
+                    }
+                )
+            } catch (error: AIProviderException) {
+                if (error.retryable && providerResumeAttempts < maxProviderResumeAttempts) {
+                    providerResumeAttempts++
+                    val codeText = error.statusCode?.let { "HTTP $it" } ?: "connection error"
+                    controlInstruction =
+                        "The provider connection was interrupted ($codeText). Resume the SAME iteration from the saved working memory. " +
+                            "Do not repeat completed work. Use tools only for work that is still needed."
+                    contextManager.rememberInstruction(controlInstruction)
+                    checkpoint()
+                    send(
+                        AgentStatus(
+                            "Provider interrupted ($codeText). Resuming iteration ${iterations + 1} from checkpoint, attempt $providerResumeAttempts/$maxProviderResumeAttempts..."
+                        )
+                    )
+                    delay(if (providerResumeAttempts == 1) 5_000L else 12_000L)
+                    continue
+                }
+                checkpoint()
+                throw error
+            }
+
+            providerResumeAttempts = 0
             forceToolNextTurn = false
 
+            if (modelResponse.streamed) {
+                send(
+                    AgentStatus(
+                        "Stream received successfully (${modelResponse.streamChunks} chunks).",
+                        transient = true
+                    )
+                )
+            }
+
             val responseText = modelResponse.text
+            contextManager.rememberAssistantText(responseText)
+
             val nativeCalls = modelResponse.toolCalls
             val legacyCalls = if (nativeCalls.isEmpty()) {
                 toolRegex.findAll(responseText).mapNotNull { match ->
@@ -172,64 +217,59 @@ class AgentEngine(
                 } else {
                     "legacy XML"
                 }
-                emit(
+                send(
                     AgentStatus(
                         "Executing ${batch.size} $mechanism tool${if (batch.size == 1) "" else "s"} in iteration ${iterations + 1}..."
                     )
                 )
 
-                val resultBlock = StringBuilder()
-                if (responseText.isNotBlank()) {
-                    resultBlock.appendLine("Assistant text:")
-                    resultBlock.appendLine(responseText)
-                    resultBlock.appendLine()
-                }
-                resultBlock.appendLine("--- EXECUTED TOOL RESULTS ($mechanism) ---")
-
                 for ((index, invocation) in batch.withIndex()) {
-                    emit(AgentStatus("Tool ${index + 1}/${batch.size}: ${invocation.name}..."))
+                    send(AgentStatus("Tool ${index + 1}/${batch.size}: ${invocation.name}..."))
                     val tool = tools.find { it.name == invocation.name }
                     if (tool == null) {
-                        resultBlock.appendLine("Tool Error (${invocation.name}): Tool not found.")
-                        resultBlock.appendLine()
+                        val result = "Tool Error: Tool ${invocation.name} was not found."
+                        contextManager.rememberToolResult(
+                            invocation.name,
+                            invocation.arguments,
+                            result
+                        )
                         continue
                     }
 
-                    try {
+                    val result = try {
                         val args = invocation.arguments.mapValues { (_, value) -> argumentToString(value) }
-                        val result = tool.execute(args)
-                        resultBlock.appendLine("Tool Result (${invocation.name}):")
-                        resultBlock.appendLine(result)
-                        resultBlock.appendLine()
+                        tool.execute(args)
                     } catch (error: Exception) {
-                        resultBlock.appendLine(
-                            "Tool Error (${invocation.name}): ${error.message ?: error.javaClass.simpleName}"
-                        )
-                        resultBlock.appendLine()
+                        "Tool Error: ${error.message ?: error.javaClass.simpleName}"
                     }
+
+                    contextManager.rememberToolResult(
+                        toolName = invocation.name,
+                        arguments = invocation.arguments,
+                        result = result
+                    )
                 }
 
                 if (requestedCalls.size > maxToolsPerIteration) {
-                    resultBlock.appendLine(
-                        "BATCH LIMIT: ${requestedCalls.size} tools were requested but only the first $maxToolsPerIteration were executed. Request the remaining tools again next iteration."
+                    contextManager.rememberInstruction(
+                        "The model requested ${requestedCalls.size} tools, but only the first $maxToolsPerIteration were executed. Request remaining tools again if still needed."
                     )
                 }
-                resultBlock.appendLine("--- END TOOL RESULTS ---")
-                resultBlock.appendLine(
-                    "Continue the ORIGINAL task now. Use additional tools immediately if more work remains."
-                )
 
-                currentPrompt += "\n\n$resultBlock\n"
                 iterations++
                 completionAuditRequested = false
                 completionCorrectionAttempts = 0
                 noToolActionCorrectionAttempts = 0
+                controlInstruction =
+                    "Continue the ORIGINAL task now using the compact working memory. Do not repeat completed work. " +
+                        "Call additional tools immediately if more work remains."
+                checkpoint()
                 continue
             }
 
-            val accessWasVerified = !repositorySnapshot.contains("failed", ignoreCase = true) &&
-                !repositorySnapshot.contains("PAT is missing", ignoreCase = true) &&
-                !repositorySnapshot.contains("not configured", ignoreCase = true)
+            val accessWasVerified = !basePrompt.contains("failed", ignoreCase = true) &&
+                !basePrompt.contains("PAT is missing", ignoreCase = true) &&
+                !basePrompt.contains("not configured", ignoreCase = true)
             val falseAccessDenial = listOf(
                 "can't access that repository",
                 "cannot access that repository",
@@ -245,12 +285,12 @@ class AgentEngine(
                 accessCorrectionAttempts++
                 iterations++
                 forceToolNextTurn = requireToolOnStart
-                currentPrompt += """
-
-                    Assistant response rejected: it incorrectly claimed repository access was unavailable.
-                    The application already accessed $repoContext successfully. Continue now and CALL the available repository tools directly.
-                """.trimIndent()
-                emit(AgentStatus("Correcting repository access response..."))
+                controlInstruction =
+                    "The previous response incorrectly claimed repository access was unavailable. Repository access is already verified. " +
+                        "Continue now and CALL repository tools directly when needed."
+                contextManager.rememberInstruction(controlInstruction)
+                checkpoint()
+                send(AgentStatus("Correcting repository access response..."))
                 continue
             }
 
@@ -265,32 +305,25 @@ class AgentEngine(
                 noToolActionCorrectionAttempts++
                 iterations++
                 forceToolNextTurn = true
-                currentPrompt += """
-
-                    Assistant response rejected because it described future repository work but did not actually call a tool:
-                    $responseText
-
-                    Do not narrate the next action. CALL one or more repository tools NOW. Native function/tool calling is preferred. If native tools are unavailable, use the legacy <tool> format.
-                """.trimIndent()
-                emit(AgentStatus("Forcing repository tool execution..."))
+                controlInstruction =
+                    "The previous response only described future work and did not call a tool. Do not narrate the next action. " +
+                        "CALL one or more repository tools NOW. Native function/tool calling is preferred."
+                contextManager.rememberInstruction(controlInstruction)
+                checkpoint()
+                send(AgentStatus("Forcing repository tool execution..."))
                 continue
             }
 
             if (!completionAuditRequested) {
                 completionAuditRequested = true
                 iterations++
-                currentPrompt += """
-
-                    Assistant draft response:
-                    $responseText
-
-                    COMPLETION AUDIT REQUIRED NOW:
-                    Re-check the ORIGINAL user request requirement by requirement.
-                    If anything is missing, uncertain, inconsistent, or only partially implemented, CALL repository tools immediately and continue working.
-                    Do not answer only that you will continue.
-                    Only if everything is genuinely complete may you return the final answer ending with <task_complete>true</task_complete>.
-                """.trimIndent()
-                emit(AgentStatus("Auditing completion against the original request..."))
+                controlInstruction =
+                    "COMPLETION AUDIT: Re-check the ORIGINAL user request requirement by requirement against working memory and staged changes. " +
+                        "If anything is missing, uncertain or incomplete, CALL repository tools immediately and continue. " +
+                        "Only if everything is genuinely complete may the final answer end with <task_complete>true</task_complete>."
+                contextManager.rememberInstruction(controlInstruction)
+                checkpoint()
+                send(AgentStatus("Auditing completion against the original request..."))
                 continue
             }
 
@@ -298,30 +331,103 @@ class AgentEngine(
                 completionCorrectionAttempts++
                 iterations++
                 forceToolNextTurn = requireToolOnStart
-                currentPrompt += """
-
-                    Completion response rejected because the task was not confirmed complete.
-                    If work remains, CALL repository tools now. If the original request is fully complete, provide the final answer and end exactly with:
-                    <task_complete>true</task_complete>
-                """.trimIndent()
-                emit(AgentStatus("Completion audit needs another pass..."))
+                controlInstruction =
+                    "Completion was not confirmed. If work remains, CALL tools now. If the ORIGINAL request is fully complete, " +
+                        "provide the final answer and end exactly with <task_complete>true</task_complete>."
+                contextManager.rememberInstruction(controlInstruction)
+                checkpoint()
+                send(AgentStatus("Completion audit needs another pass..."))
                 continue
             }
 
             val cleanedResponse = responseText
                 .replace("<task_complete>true</task_complete>", "")
                 .trim()
-            emit(AgentStatus("Ready for review.", cleanedResponse))
-            break
+            send(AgentStatus("Ready for review.", cleanedResponse))
+            return@channelFlow
         }
 
-        if (iterations >= maxIterations) {
-            emit(
-                AgentStatus(
-                    "Reached the 48-iteration safety limit. Any successfully staged files were preserved in Changes so work can continue in a new instruction."
-                )
+        checkpoint()
+        send(
+            AgentStatus(
+                "Reached the 48-iteration safety limit. Successfully staged files were preserved in Changes and the session checkpoint can be resumed."
             )
-        }
+        )
+    }
+
+    private fun buildBasePrompt(
+        repoContext: String,
+        repositorySnapshot: String,
+        request: String
+    ): String = """
+        You are a senior autonomous software-engineering AI agent working at maximum effort.
+        You have access to repository: $repoContext through real tools provided by this Android application.
+        The application has already inspected the repository and returned this real snapshot:
+
+        --- REPOSITORY SNAPSHOT ---
+        $repositorySnapshot
+        --- END REPOSITORY SNAPSHOT ---
+
+        CORE EXECUTION RULES:
+        - Work on ANY repository task the user asks for: frontend, backend, Android, APIs, infrastructure, configuration, CI, refactors, debugging, migrations, tests, documentation, or other software work.
+        - Treat the user's complete request as a checklist. Keep working until every explicit requirement is completed, intentionally excluded with a clear reason, or blocked by a real external limitation.
+        - Do not stop after one file or one successful change when the task requires more work.
+        - Prefer evidence over assumptions. Inspect relevant files and dependencies before changing them.
+        - After editing important files, re-read staged versions when useful and check imports, references, routes, configuration, syntax relationships, and cross-file consistency.
+        - readFile returns the latest staged Changes version when that file has already been edited.
+        - Never claim a file was changed unless updateFile successfully staged it.
+        - Never commit or push. The user reviews staged Changes and performs Commit / Push separately.
+
+        CONTEXT MANAGEMENT RULES:
+        - Working memory is bounded for reliability. Older redundant tool output may be compacted.
+        - The ORIGINAL user request is always authoritative.
+        - A latest read for the same file replaces its older read in memory.
+        - If exact omitted content is needed, re-read only that file or relevant line range instead of re-reading the entire repository.
+        - Do not repeat already completed reads/edits merely because older verbose output was compacted.
+
+        TOOL EXECUTION RULES:
+        - Native function/tool calling is the PRIMARY mechanism. CALL tools directly instead of saying you will call them.
+        - Never answer only "I will read the files", "Saya akan membaca repo", "I will continue", or similar future-tense narration.
+        - You may request up to 6 tool calls in one iteration.
+        - Batch independent listFiles/readFile/searchCode calls when useful.
+        - You may stage several independent updateFile calls in one iteration when their complete contents are known.
+        - For updateFile, always provide the COMPLETE final file content, never only a patch fragment.
+
+        LEGACY TOOL FALLBACK:
+        - Only when native tool calling is unavailable, tools may be requested as:
+          <tool name="toolName">{"argName":"argValue"}</tool>
+
+        REPOSITORY ACCESS RULES:
+        - Repository tools are real and available through this Android application.
+        - Never claim repository access is unavailable when the snapshot contains repository entries.
+        - Use listFiles, searchCode and readFile whenever more evidence is needed.
+        - Do not invent file names or repository contents.
+
+        NATURAL-LANGUAGE RULES:
+        - Understand Indonesian and English, including informal spelling, short instructions and typos.
+        - Infer user intent from context instead of searching only exact words.
+        - Ask one short clarification only when materially different interpretations remain after inspecting the repository.
+        - Reply in the same language as the user unless requested otherwise.
+
+        Available tools:
+        ${tools.joinToString("\n") { "- ${it.name}: ${it.description}" }}
+
+        COMPLETION RULE:
+        - Before finishing, perform a completion audit against the ORIGINAL user request.
+        - If anything is incomplete, CALL tools and continue working.
+        - Only when genuinely complete should the final answer contain no tool calls/tags and end with:
+          <task_complete>true</task_complete>
+
+        ORIGINAL USER REQUEST:
+        $request
+    """.trimIndent()
+
+    private fun compactBaseText(text: String, limit: Int): String {
+        if (text.length <= limit) return text
+        val marker = "\n\n[...repository snapshot compacted; use listFiles/readFile/searchCode for omitted entries...]\n\n"
+        val available = (limit - marker.length).coerceAtLeast(4_000)
+        val head = (available * 3) / 4
+        return text.take(head) + marker + text.takeLast(available - head)
     }
 
     private fun looksLikeUnfinishedNarration(text: String): Boolean {
@@ -364,7 +470,23 @@ private data class PendingToolInvocation(
     val arguments: Map<String, Any?>
 )
 
+data class AgentResumeState(
+    val basePrompt: String,
+    val originalRequest: String,
+    val repoContext: String,
+    val contextSnapshot: AgentContextSnapshot,
+    val iterations: Int,
+    val accessCorrectionAttempts: Int,
+    val completionAuditRequested: Boolean,
+    val completionCorrectionAttempts: Int,
+    val noToolActionCorrectionAttempts: Int,
+    val forceToolNextTurn: Boolean,
+    val requireToolOnStart: Boolean,
+    val controlInstruction: String
+)
+
 data class AgentStatus(
     val message: String,
-    val finalResponse: String? = null
+    val finalResponse: String? = null,
+    val transient: Boolean = false
 )
