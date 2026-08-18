@@ -41,7 +41,7 @@ class AgentEngine(
             ""
         }
         val repositorySnapshot = repositoryRoot + workflowContext
-        
+
         var currentPrompt = """
             You are a senior software engineering AI agent that understands everyday language.
             You have access to repository: $repoContext through tools provided by this Android application.
@@ -70,28 +70,29 @@ class AgentEngine(
 
             You can use tools by outputting EXACTLY this format:
             <tool name="toolName">{"argName": "argValue"}</tool>
-            
+
             Available tools:
             ${tools.joinToString("\n") { "- ${it.name}: ${it.description}" }}
-            
+
             When you are done, output your final response and DO NOT output any <tool> tags.
-            
+
             User request: $request
         """.trimIndent()
-        
+
+        val maxIterations = 24
         var iterations = 0
         var accessCorrectionAttempts = 0
-        while (iterations < 8) {
+        while (iterations < maxIterations) {
             emit(AgentStatus("Thinking deeply... (Iteration ${iterations + 1})"))
             val response = aiClient.analyze(currentPrompt, if (iterations == 0) attachments else emptyList())
-            
+
             val toolMatch = "<tool name=\"([a-zA-Z]+)\">(.*?)</tool>".toRegex(RegexOption.DOT_MATCHES_ALL).find(response)
             if (toolMatch != null) {
                 val toolName = toolMatch.groupValues[1]
                 val argsJson = toolMatch.groupValues[2]
-                
+
                 emit(AgentStatus("Executing tool: $toolName..."))
-                
+
                 val tool = tools.find { it.name == toolName }
                 if (tool != null) {
                     try {
@@ -103,7 +104,7 @@ class AgentEngine(
                         )
                         val args = mapAdapter.fromJson(argsJson) ?: emptyMap()
                         val result = tool.execute(args)
-                        
+
                         currentPrompt += "\n\nAssistant: $response\n\nTool Result ($toolName): $result\n"
                     } catch (e: Exception) {
                         currentPrompt += "\n\nAssistant: $response\n\nTool Error ($toolName): ${e.message}\n"
@@ -145,7 +146,7 @@ class AgentEngine(
                 }
             }
         }
-        if (iterations >= 8) {
+        if (iterations >= maxIterations) {
             emit(AgentStatus("Finished due to iteration limit."))
         }
     }
