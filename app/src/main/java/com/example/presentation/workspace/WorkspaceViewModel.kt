@@ -51,6 +51,7 @@ class WorkspaceViewModel(
                 val config = AIProviderConfig(
                     baseUrl = settingsRepository.baseUrlFlow.first(),
                     modelName = settingsRepository.modelNameFlow.first(),
+                    apiFormat = settingsRepository.apiFormatFlow.first(),
                     reasoningLevel = settingsRepository.reasoningLevelFlow.first()
                 )
                 _agentConfig.value = config
@@ -103,6 +104,7 @@ class WorkspaceViewModel(
             For multi-file or multi-step work, continue until every requested requirement is completed or a real blocking error occurs.
             Do not stop after the first successful edit. Re-read staged files when useful and repair your own work before declaring completion.
             Existing files already in Changes are part of your working tree. Preserve them unless the user's new instruction requires changing them.
+            When native repository tools are offered by the API, CALL them directly. Never merely say that you are going to read or edit a file.
         """.trimIndent()
 
         val textAttachments = attachments.mapNotNull { attachment ->
@@ -119,8 +121,6 @@ class WorkspaceViewModel(
         val apiKey = secureCredentialManager.getApiKey() ?: ""
         val aiClient = com.example.agent.AIClient(config, apiKey)
 
-        // One shared staged workspace is used by both readFile and updateFile.
-        // This lets the agent edit a file, read its new staged version, and improve it again.
         val updateTool = UpdateFileTool(initialPatches = _pendingPatches.value)
         val readTool = ReadFileTool(
             gitHubService = gitHubService,
@@ -137,11 +137,17 @@ class WorkspaceViewModel(
         )
 
         val engine = AgentEngine(config, tools, aiClient)
+        val requireRepositoryTool = requestLikelyNeedsRepositoryTools(request)
 
         viewModelScope.launch {
             try {
                 var finalAgentResponse = ""
-                engine.processRequest(agentRequest, repositoryName, attachments).collect { status ->
+                engine.processRequest(
+                    request = agentRequest,
+                    repoContext = repositoryName,
+                    attachments = attachments,
+                    requireToolOnStart = requireRepositoryTool
+                ).collect { status ->
                     if (status.finalResponse != null) {
                         finalAgentResponse = status.finalResponse
                     } else {
@@ -166,6 +172,19 @@ class WorkspaceViewModel(
                 _isAgentBusy.value = false
             }
         }
+    }
+
+    private fun requestLikelyNeedsRepositoryTools(request: String): Boolean {
+        val normalized = request.lowercase()
+        val keywords = listOf(
+            "buat", "bikin", "tambah", "tambahkan", "ubah", "edit", "perbaiki", "hapus",
+            "lanjut", "lanjutkan", "kerjakan", "cek", "periksa", "baca", "cari", "analisis",
+            "implement", "refactor", "migrasi", "konfigur", "optim", "test", "uji", "build",
+            "create", "add", "change", "modify", "fix", "repair", "remove", "continue",
+            "inspect", "read", "search", "analyze", "update", "upgrade", "implement", "refactor",
+            "migrate", "configure", "optimize", "test", "debug"
+        )
+        return keywords.any { normalized.contains(it) }
     }
 
     fun confirmCommit(commitMessage: String) {
