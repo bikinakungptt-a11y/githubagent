@@ -22,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -59,7 +58,7 @@ fun MainIdeScreen(
                 NavigationBarItem(
                     selected = selectedTab == "agent",
                     onClick = { selectedTab = "agent"; navController.navigate("agent") { launchSingleTop = true } },
-                    icon = { Icon(Icons.Default.Chat, contentDescription = "Agent") }, // Replace with real icons later
+                    icon = { Icon(Icons.Default.Chat, contentDescription = "Agent") },
                     label = { Text("Agent") },
                     colors = blueBlackNavigationColors()
                 )
@@ -107,6 +106,10 @@ fun MainIdeScreen(
                     onOpenFiles = {
                         selectedTab = "files"
                         navController.navigate("files") { launchSingleTop = true }
+                    },
+                    onOpenChanges = {
+                        selectedTab = "changes"
+                        navController.navigate("changes") { launchSingleTop = true }
                     },
                     onOpenSettings = {
                         selectedTab = "settings"
