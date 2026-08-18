@@ -140,43 +140,44 @@ class AgentEngine(
                     )
                 )
 
-                val resultBlock = buildString {
-                    appendLine("Assistant requested tools:")
-                    appendLine(response)
-                    appendLine()
-                    appendLine("--- EXECUTED TOOL RESULTS ---")
+                val resultBlock = StringBuilder()
+                resultBlock.appendLine("Assistant requested tools:")
+                resultBlock.appendLine(response)
+                resultBlock.appendLine()
+                resultBlock.appendLine("--- EXECUTED TOOL RESULTS ---")
 
-                    batch.forEachIndexed { index, match ->
-                        val toolName = match.groupValues[1]
-                        val argsJson = match.groupValues[2]
-                        emit(AgentStatus("Tool ${index + 1}/${batch.size}: $toolName..."))
+                for ((index, match) in batch.withIndex()) {
+                    val toolName = match.groupValues[1]
+                    val argsJson = match.groupValues[2]
+                    emit(AgentStatus("Tool ${index + 1}/${batch.size}: $toolName..."))
 
-                        val tool = tools.find { it.name == toolName }
-                        if (tool == null) {
-                            appendLine("Tool Error ($toolName): Tool not found.")
-                            appendLine()
-                            return@forEachIndexed
-                        }
-
-                        try {
-                            val args = mapAdapter.fromJson(argsJson) ?: emptyMap()
-                            val result = tool.execute(args)
-                            appendLine("Tool Result ($toolName):")
-                            appendLine(result)
-                            appendLine()
-                        } catch (error: Exception) {
-                            appendLine("Tool Error ($toolName): ${error.message ?: error.javaClass.simpleName}")
-                            appendLine()
-                        }
+                    val tool = tools.find { it.name == toolName }
+                    if (tool == null) {
+                        resultBlock.appendLine("Tool Error ($toolName): Tool not found.")
+                        resultBlock.appendLine()
+                        continue
                     }
 
-                    if (allToolMatches.size > maxToolsPerIteration) {
-                        appendLine(
-                            "BATCH LIMIT: The response requested ${allToolMatches.size} tools, but only the first $maxToolsPerIteration were executed. Request any remaining tools again in the next iteration."
+                    try {
+                        val args = mapAdapter.fromJson(argsJson) ?: emptyMap()
+                        val result = tool.execute(args)
+                        resultBlock.appendLine("Tool Result ($toolName):")
+                        resultBlock.appendLine(result)
+                        resultBlock.appendLine()
+                    } catch (error: Exception) {
+                        resultBlock.appendLine(
+                            "Tool Error ($toolName): ${error.message ?: error.javaClass.simpleName}"
                         )
+                        resultBlock.appendLine()
                     }
-                    appendLine("--- END TOOL RESULTS ---")
                 }
+
+                if (allToolMatches.size > maxToolsPerIteration) {
+                    resultBlock.appendLine(
+                        "BATCH LIMIT: The response requested ${allToolMatches.size} tools, but only the first $maxToolsPerIteration were executed. Request any remaining tools again in the next iteration."
+                    )
+                }
+                resultBlock.appendLine("--- END TOOL RESULTS ---")
 
                 currentPrompt += "\n\n$resultBlock\n"
                 iterations++
